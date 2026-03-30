@@ -1,38 +1,32 @@
-# ===== Java / Spring Boot =====
-target/
-*.log
-*.class
-
-# Maven wrapper
-.mvn/wrapper/maven-wrapper.jar
-
-# IDE
-.idea/
-*.iml
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-
-# Mac
-.DS_Store
-
-# Environment files
-.env
-.env.*
-
-# ===== Node / React =====
+# Dependencies
 node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
 dist/
 build/
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ===== Spring Boot =====
-application-local.properties
-application-secret.properties
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS
+.DS_Store
 Thumbs.db
+
+# AI Service models
+ai-service/models/*.joblib
+
+# Logs
+*.log
+npm-debug.log*
