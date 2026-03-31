@@ -1,49 +1,67 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
-// Request interceptor: attach token
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+let refreshPromise = null;
 
-// Response interceptor: handle auth errors
+async function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = api
+      .post('/auth/refresh')
+      .catch((error) => {
+        window.dispatchEvent(new CustomEvent('trusthire:session-expired'));
+        throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      // Try refresh
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (refreshToken) {
-        try {
-          const { data } = await axios.post(`${API_URL}/auth/refresh`, {
-            refresh_token: refreshToken
-          });
-          localStorage.setItem('access_token', data.session.access_token);
-          localStorage.setItem('refresh_token', data.session.refresh_token);
-          error.config.headers.Authorization = `Bearer ${data.session.access_token}`;
-          return api(error.config);
-        } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
-        }
-      }
+    const originalRequest = error.config;
+    const status = error.response?.status;
+
+    if (!originalRequest || originalRequest._retry || status !== 401) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
-  }
+
+    if (originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/register')) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      await refreshSession();
+      return api(originalRequest);
+    } catch (refreshError) {
+      return Promise.reject(refreshError);
+    }
+  },
 );
+
+export function getApiError(error, fallback = 'Something went wrong') {
+  const data = error?.response?.data;
+  // Backend returns { error: { message, stack } } or { error: "string" } or { detail: "string" }
+  if (data?.error) {
+    return typeof data.error === 'string' ? data.error : data.error.message || fallback;
+  }
+  if (data?.detail) return String(data.detail);
+  if (data?.message) return String(data.message);
+  return error?.message || fallback;
+}
 
 export default api;

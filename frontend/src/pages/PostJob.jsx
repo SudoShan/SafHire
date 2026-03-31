@@ -1,307 +1,267 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { HiBriefcase, HiShieldCheck, HiExclamation, HiPlus, HiX } from 'react-icons/hi';
+import { useNavigate } from 'react-router-dom';
+import { HiOutlineSparkles, HiOutlineInformationCircle } from 'react-icons/hi2';
+import AppShell from '../components/AppShell';
+import PageHeader from '../components/PageHeader';
+import api, { getApiError } from '../lib/api';
+
+function splitCsv(value) {
+  return value.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+const FIELD = (label, key, props, form, setForm) => (
+  <label key={key} className="block space-y-1.5">
+    <span className="th-label">{label}</span>
+    <input
+      className="th-input"
+      value={form[key]}
+      onChange={(e) => setForm((c) => ({ ...c, [key]: e.target.value }))}
+      {...props}
+    />
+  </label>
+);
 
 export default function PostJob() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [scamResult, setScamResult] = useState(null);
-  const [skillInput, setSkillInput] = useState('');
-  const [reqInput, setReqInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     title: '',
+    role: '',
     description: '',
+    location: '',
+    job_type: 'full_time',
+    distribution_mode: 'off_campus_public',
     salary_min: '',
     salary_max: '',
-    location: '',
-    job_type: 'full-time',
-    required_skills: [],
-    requirements: [],
+    application_deadline: '',
+    required_skills: '',
+    attachment_urls: '',
     min_cgpa: '',
-    experience_level: 'entry',
-    application_deadline: ''
+    max_backlogs: '',
+    departments: '',
+    graduation_years: '',
   });
 
-  const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const f = (key) => ({
+    value: form[key],
+    onChange: (e) => setForm((c) => ({ ...c, [key]: e.target.value })),
+  });
 
-  const addSkill = () => {
-    if (skillInput.trim() && !form.required_skills.includes(skillInput.trim())) {
-      update('required_skills', [...form.required_skills, skillInput.trim()]);
-      setSkillInput('');
-    }
-  };
-
-  const removeSkill = (skill) => {
-    update('required_skills', form.required_skills.filter(s => s !== skill));
-  };
-
-  const addRequirement = () => {
-    if (reqInput.trim()) {
-      update('requirements', [...form.requirements, reqInput.trim()]);
-      setReqInput('');
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.title || !form.description) {
-      return toast.error('Title and description are required');
-    }
-
-    setLoading(true);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSubmitting(true);
     try {
       const payload = {
-        ...form,
+        title: form.title,
+        role: form.role,
+        description: form.description,
+        location: form.location,
+        job_type: form.job_type,
+        distribution_mode: form.distribution_mode,
         salary_min: form.salary_min ? Number(form.salary_min) : null,
         salary_max: form.salary_max ? Number(form.salary_max) : null,
-        min_cgpa: form.min_cgpa ? Number(form.min_cgpa) : 0,
+        application_deadline: form.application_deadline || null,
+        required_skills: splitCsv(form.required_skills),
+        attachment_urls: splitCsv(form.attachment_urls),
+        eligibility_rules: {
+          min_cgpa: form.min_cgpa ? Number(form.min_cgpa) : null,
+          max_backlogs: form.max_backlogs ? Number(form.max_backlogs) : null,
+          departments: splitCsv(form.departments),
+          graduation_years: splitCsv(form.graduation_years).map(Number),
+        },
       };
-
       const { data } = await api.post('/jobs', payload);
-      setScamResult(data.scam_analysis);
-
-      if (data.scam_analysis?.flagged) {
-        toast('Job posted but flagged for review', { icon: '⚠️' });
-      } else {
-        toast.success('Job posted successfully!');
-      }
-
-      setTimeout(() => navigate(`/jobs/${data.job.id}`), 2000);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to post job');
+      toast.success(`Job created — status: ${data.job.status}`);
+      navigate(`/jobs/${data.job.id}`);
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to create job'));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="mb-8 animate-fade-in">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <HiBriefcase className="w-8 h-8 text-indigo-400" />
-          Post a New Job
-        </h1>
-        <p className="text-slate-400 mt-2">Your job listing will be analyzed by our AI scam detection system</p>
-      </div>
+    <AppShell>
+      <section className="th-section">
+        <PageHeader
+          kicker="Employer authoring"
+          title="Create a trusted job posting"
+          description="Every role is screened by AI before publication. Public jobs go to the platform-wide feed; campus drives move through CDC assignment."
+        />
+      </section>
 
-      {/* Scam Result Banner */}
-      {scamResult && (
-        <div className={`mb-6 p-5 rounded-2xl border animate-slide-up ${
-          scamResult.flagged
-            ? 'bg-red-500/10 border-red-500/20'
-            : 'bg-emerald-500/10 border-emerald-500/20'
-        }`}>
-          <div className="flex items-center gap-3 mb-2">
-            {scamResult.flagged ? (
-              <HiExclamation className="w-6 h-6 text-red-400" />
-            ) : (
-              <HiShieldCheck className="w-6 h-6 text-emerald-400" />
-            )}
-            <h3 className={`font-semibold ${scamResult.flagged ? 'text-red-400' : 'text-emerald-400'}`}>
-              {scamResult.flagged ? 'Job Flagged for Review' : 'Job Verified & Active'}
-            </h3>
-          </div>
-          <p className="text-sm text-slate-300">
-            Scam Score: {scamResult.scam_score?.toFixed(1)} | Risk: {scamResult.risk_level}
-          </p>
-          {scamResult.explanation && (
-            <p className="text-sm text-slate-400 mt-2">{scamResult.explanation}</p>
-          )}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="glass rounded-2xl p-8 space-y-6 animate-fade-in">
-        {/* Title */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Job Title *</label>
-          <input
-            id="job-title"
-            value={form.title}
-            onChange={(e) => update('title', e.target.value)}
-            className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
-            placeholder="e.g., Software Engineer"
-            required
-          />
-        </div>
-
-        {/* Description */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Job Description *</label>
-          <textarea
-            id="job-description"
-            value={form.description}
-            onChange={(e) => update('description', e.target.value)}
-            className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none h-40 transition-all"
-            placeholder="Describe the role, responsibilities, and benefits..."
-            required
-          />
-        </div>
-
-        {/* Salary & Location */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <form className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]" onSubmit={handleSubmit}>
+        {/* Left: core details */}
+        <div className="th-section space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Min Salary (₹)</label>
-            <input
-              type="number"
-              value={form.salary_min}
-              onChange={(e) => update('salary_min', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="e.g., 500000"
-            />
+            <p className="th-label">Core role details</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Role information</h2>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Max Salary (₹)</label>
-            <input
-              type="number"
-              value={form.salary_max}
-              onChange={(e) => update('salary_max', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="e.g., 1000000"
+
+          <label className="block space-y-1.5">
+            <span className="th-label">Job title</span>
+            <input className="th-input" placeholder="e.g. Frontend Engineer" required {...f('title')} />
+          </label>
+
+          <label className="block space-y-1.5">
+            <span className="th-label">Role / function</span>
+            <input className="th-input" placeholder="e.g. Software Development" required {...f('role')} />
+          </label>
+
+          <label className="block space-y-1.5">
+            <span className="th-label">Job description</span>
+            <textarea
+              className="th-input"
+              style={{ minHeight: '10rem' }}
+              placeholder="Describe responsibilities, requirements, and what makes this role unique…"
+              required
+              {...f('description')}
             />
+          </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="th-label">Location</span>
+              <input className="th-input" placeholder="Bengaluru / Remote" {...f('location')} />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="th-label">Job type</span>
+              <select className="th-input" {...f('job_type')}>
+                <option value="full_time">Full time</option>
+                <option value="internship">Internship</option>
+                <option value="part_time">Part time</option>
+                <option value="contract">Contract</option>
+                <option value="remote">Remote</option>
+              </select>
+            </label>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Location</label>
-            <input
-              value={form.location}
-              onChange={(e) => update('location', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="e.g., Bangalore"
-            />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="th-label">Salary minimum (₹)</span>
+              <input className="th-input" type="number" min="0" placeholder="300000" {...f('salary_min')} />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="th-label">Salary maximum (₹)</span>
+              <input className="th-input" type="number" min="0" placeholder="800000" {...f('salary_max')} />
+            </label>
           </div>
+
+          <label className="block space-y-1.5">
+            <span className="th-label">Application deadline</span>
+            <input className="th-input" type="date" {...f('application_deadline')} />
+          </label>
         </div>
 
-        {/* Job Type & Experience */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Job Type</label>
-            <select
-              value={form.job_type}
-              onChange={(e) => update('job_type', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-            >
-              <option value="full-time">Full-Time</option>
-              <option value="part-time">Part-Time</option>
-              <option value="internship">Internship</option>
-              <option value="contract">Contract</option>
-              <option value="remote">Remote</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Experience Level</label>
-            <select
-              value={form.experience_level}
-              onChange={(e) => update('experience_level', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-            >
-              <option value="entry">Entry Level</option>
-              <option value="mid">Mid Level</option>
-              <option value="senior">Senior Level</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Min CGPA</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              value={form.min_cgpa}
-              onChange={(e) => update('min_cgpa', e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="0.0"
-            />
-          </div>
-        </div>
+        {/* Right: distribution + eligibility */}
+        <div className="space-y-4">
+          <div className="th-section space-y-5">
+            <div>
+              <p className="th-label">Distribution & filters</p>
+              <h2 className="mt-1 text-xl font-bold text-ink">Visibility model</h2>
+            </div>
 
-        {/* Skills */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Required Skills</label>
-          <div className="flex gap-2 mb-3">
-            <input
-              value={skillInput}
-              onChange={(e) => setSkillInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-              className="flex-1 px-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="Add a skill (e.g., React)"
-            />
-            <button
-              type="button"
-              onClick={addSkill}
-              className="px-3 py-2.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl hover:bg-indigo-500/30 transition"
-            >
-              <HiPlus className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {form.required_skills.map(skill => (
-              <span key={skill} className="flex items-center gap-1.5 px-3 py-1 text-sm bg-indigo-500/10 text-indigo-300 rounded-full border border-indigo-500/20">
-                {skill}
-                <button type="button" onClick={() => removeSkill(skill)}>
-                  <HiX className="w-3.5 h-3.5 text-indigo-400 hover:text-red-400 transition" />
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
+            <label className="block space-y-1.5">
+              <span className="th-label">Distribution mode</span>
+              <select className="th-input" {...f('distribution_mode')}>
+                <option value="off_campus_public">Off-campus public</option>
+                <option value="campus_cdc">Campus CDC</option>
+              </select>
+            </label>
 
-        {/* Requirements */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Requirements</label>
-          <div className="flex gap-2 mb-3">
-            <input
-              value={reqInput}
-              onChange={(e) => setReqInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addRequirement())}
-              className="flex-1 px-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:border-indigo-500 outline-none transition"
-              placeholder="e.g., 3+ years experience"
-            />
-            <button type="button" onClick={addRequirement}
-              className="px-3 py-2.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl hover:bg-indigo-500/30 transition">
-              <HiPlus className="w-5 h-5" />
-            </button>
+            <label className="block space-y-1.5">
+              <span className="th-label">Required skills</span>
+              <input className="th-input" placeholder="React, Node.js, Supabase" {...f('required_skills')} />
+              <p className="text-xs text-ink-soft mt-1">Comma-separated</p>
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="th-label">Attachment URLs</span>
+              <input className="th-input" placeholder="https://…" {...f('attachment_urls')} />
+            </label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1.5">
+                <span className="th-label">Min CGPA</span>
+                <input className="th-input" type="number" min="0" max="10" step="0.1" placeholder="6.5" {...f('min_cgpa')} />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="th-label">Max backlogs</span>
+                <input className="th-input" type="number" min="0" placeholder="0" {...f('max_backlogs')} />
+              </label>
+            </div>
+
+            <label className="block space-y-1.5">
+              <span className="th-label">Eligible departments</span>
+              <input className="th-input" placeholder="CSE, IT, AI & DS" {...f('departments')} />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="th-label">Graduation years</span>
+              <input className="th-input" placeholder="2025, 2026" {...f('graduation_years')} />
+            </label>
           </div>
-          <ul className="space-y-1">
-            {form.requirements.map((req, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm text-slate-300">
-                <span className="text-indigo-400">•</span> {req}
-                <button type="button" onClick={() => update('requirements', form.requirements.filter((_, j) => j !== i))}>
-                  <HiX className="w-3.5 h-3.5 text-slate-500 hover:text-red-400" />
-                </button>
+
+          {/* Info card */}
+          <div
+            className="rounded-2xl p-5 space-y-3"
+            style={{
+              background: 'rgba(99,102,241,0.06)',
+              border: '1px solid rgba(99,102,241,0.15)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <HiOutlineSparkles className="h-4 w-4 flex-shrink-0" style={{ color: '#818cf8' }} />
+              <p className="text-sm font-semibold text-ink">What happens next</p>
+            </div>
+            <ol className="space-y-2 text-xs leading-6 text-ink-soft list-none">
+              <li className="flex gap-2">
+                <span
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                  style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8' }}
+                >1</span>
+                TrustHire screens the role with AI scam detection.
               </li>
-            ))}
-          </ul>
-        </div>
+              <li className="flex gap-2">
+                <span
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                  style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8' }}
+                >2</span>
+                Public jobs publish directly if risk is low and employer is verified.
+              </li>
+              <li className="flex gap-2">
+                <span
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                  style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8' }}
+                >3</span>
+                Campus jobs need approved college access and CDC assignment.
+              </li>
+            </ol>
 
-        {/* Deadline */}
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Application Deadline</label>
-          <input
-            type="date"
-            value={form.application_deadline}
-            onChange={(e) => update('application_deadline', e.target.value)}
-            className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-          />
+            <button
+              className="th-btn-primary w-full justify-center py-3 mt-2"
+              disabled={submitting}
+              type="submit"
+            >
+              {submitting ? (
+                <>
+                  <span
+                    className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white"
+                    style={{ animation: 'spin 0.7s linear infinite' }}
+                  />
+                  Publishing…
+                </>
+              ) : (
+                <>
+                  <HiOutlineSparkles className="h-4 w-4" />
+                  Create job posting
+                </>
+              )}
+            </button>
+          </div>
         </div>
-
-        {/* Submit */}
-        <button
-          id="post-job-submit"
-          type="submit"
-          disabled={loading}
-          className="w-full py-3.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/25 transition-all disabled:opacity-50"
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Analyzing & Posting...
-            </span>
-          ) : (
-            'Post Job'
-          )}
-        </button>
       </form>
-    </div>
+    </AppShell>
   );
 }

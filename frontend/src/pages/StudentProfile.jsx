@@ -1,236 +1,265 @@
-import { useState, useEffect } from 'react';
-import api from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { HiUser, HiAcademicCap, HiDocumentText, HiOfficeBuilding, HiBookOpen, HiCurrencyRupee } from 'react-icons/hi';
-import { useAuth } from '../context/AuthContext';
+import AppShell from '../components/AppShell';
+import LoadingScreen from '../components/LoadingScreen';
+import PageHeader from '../components/PageHeader';
+import api, { getApiError } from '../lib/api';
+
+function csvToArray(value) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 export default function StudentProfile() {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [colleges, setColleges] = useState([]);
-  const [skillInput, setSkillInput] = useState('');
+  const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-
-  const [profile, setProfile] = useState({
-    college_id: '',
+  const [colleges, setColleges] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [resumeInsights, setResumeInsights] = useState(null);
+  const [form, setForm] = useState({
+    batch_id: '',
     enrollment_number: '',
-    department: '',
-    batch_year: new Date().getFullYear(),
     cgpa: '',
-    skills: [],
-    preferred_role: ''
+    active_backlogs: '',
+    history_backlogs: '',
+    skills: '',
+    preferred_role: '',
+    linkedin_url: '',
+    github_url: '',
   });
 
   useEffect(() => {
-    fetchData();
+    async function loadProfileSetup() {
+      try {
+        const [collegeResponse, profileResponse] = await Promise.all([
+          api.get('/students/colleges'),
+          api.get('/students/profile').catch(() => ({ data: { profile: null } })),
+        ]);
+
+        const currentProfile = profileResponse.data.profile || null;
+        setColleges(collegeResponse.data.colleges || []);
+        setProfile(currentProfile);
+
+        if (currentProfile) {
+          setForm({
+            batch_id: currentProfile.batch_id || '',
+            enrollment_number: currentProfile.enrollment_number || '',
+            cgpa: currentProfile.cgpa ?? '',
+            active_backlogs: currentProfile.active_backlogs ?? '',
+            history_backlogs: currentProfile.history_backlogs ?? '',
+            skills: (currentProfile.skills || []).join(', '),
+            preferred_role: currentProfile.preferred_role || '',
+            linkedin_url: currentProfile.linkedin_url || '',
+            github_url: currentProfile.github_url || '',
+          });
+        }
+      } catch (error) {
+        toast.error(getApiError(error, 'Unable to load student profile'));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadProfileSetup();
   }, []);
 
-  const fetchData = async () => {
+  const batches = useMemo(
+    () => colleges.flatMap((college) => (college.batches || []).map((batch) => ({ ...batch, college_name: college.name }))),
+    [colleges],
+  );
+
+  const selectedBatch = batches.find((batch) => batch.id === form.batch_id);
+
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    if (!selectedBatch) {
+      toast.error('Please select a batch.');
+      return;
+    }
+
+    setSaving(true);
     try {
-      const [colRes, profRes] = await Promise.all([
-        api.get('/students/colleges'),
-        api.get('/students/profile').catch(() => ({ data: { profile: null } }))
-      ]);
-      setColleges(colRes.data.colleges || []);
-      if (profRes.data?.profile) {
-        setProfile({ ...profRes.data.profile });
-      }
-    } catch (err) {
-      toast.error('Failed to load profile data');
+      const payload = {
+        batch_id: selectedBatch.id,
+        department: selectedBatch.department,
+        graduation_year: selectedBatch.graduation_year,
+        enrollment_number: form.enrollment_number,
+        cgpa: Number(form.cgpa || 0),
+        active_backlogs: Number(form.active_backlogs || 0),
+        history_backlogs: Number(form.history_backlogs || 0),
+        skills: csvToArray(form.skills),
+        preferred_role: form.preferred_role,
+        linkedin_url: form.linkedin_url,
+        github_url: form.github_url,
+      };
+
+      const { data } = await api.post('/students/profile', payload);
+      setProfile(data.profile);
+      toast.success('Student profile saved.');
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to save profile'));
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  const update = (field, value) => {
-    setProfile(p => ({ ...p, [field]: value }));
-  };
-
-  const addSkill = () => {
-    if (skillInput.trim() && !profile.skills.includes(skillInput.trim())) {
-      update('skills', [...(profile.skills || []), skillInput.trim()]);
-      setSkillInput('');
+  const uploadResume = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
     }
-  };
-
-  const removeSkill = (skill) => {
-    update('skills', profile.skills.filter(s => s !== skill));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    try {
-      setLoading(true);
-      const { data } = await api.post('/students/profile', profile);
-      setProfile({ ...data.profile });
-      toast.success('Student Profile securely registered to College Silo!');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to construct profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResumeUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (!file.name.match(/\.(pdf|doc|docx)$/)) {
-      return toast.error('Only PDF and Word documents are allowed');
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      return toast.error('File size should not exceed 5MB');
-    }
-
-    const formData = new FormData();
-    formData.append('resume', file);
 
     setUploading(true);
-    const loadingToast = toast.loading('Uploading and running AI Resume Parser...');
-
     try {
+      const formData = new FormData();
+      formData.append('resume', file);
+
       const { data } = await api.post('/students/resume', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      
-      update('resume_url', data.resume_url);
-      if (data.parsed_skills?.length > 0) {
-        toast.success(`AI extracted ${data.parsed_skills.length} skills automatically!`);
-        update('skills', [...new Set([...(profile.skills || []), ...data.parsed_skills])]);
-      } else {
-        toast.success('Resume deployed successfully');
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Resume parse failed');
+
+      setProfile(data.profile);
+      setResumeInsights(data.extracted_data);
+      setForm((current) => ({
+        ...current,
+        skills: [...new Set([...(csvToArray(current.skills)), ...((data.profile.skills || []))])].join(', '),
+        linkedin_url: data.profile.linkedin_url || current.linkedin_url,
+        preferred_role: data.profile.preferred_role || current.preferred_role,
+        department: data.profile.department || current.department,
+      }));
+      toast.success('Resume uploaded and parsed.');
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to upload resume'));
     } finally {
       setUploading(false);
-      toast.dismiss(loadingToast);
     }
   };
 
-  if (loading && !colleges.length) return <div className="text-center py-20 text-slate-400">Verifying College Silos...</div>;
+  if (loading) {
+    return (
+      <AppShell>
+        <LoadingScreen label="Loading your profile setup…" />
+      </AppShell>
+    );
+  }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <HiUser className="w-8 h-8 text-emerald-400" />
-          Student Hub Profile
-        </h1>
-        <p className="text-slate-400 mt-2">Link your account precisely to your college network to access private B2B placement jobs.</p>
-      </div>
+    <AppShell>
+      <section className="th-section">
+        <PageHeader
+          kicker="Student profile"
+          title="Build a stronger job-matching profile"
+          description="Batch-linked data controls campus eligibility, while skills and resume parsing improve public and campus recommendations."
+        />
+      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2">
-          <form onSubmit={handleSubmit} className="glass rounded-2xl p-8 space-y-6">
-            <h2 className="text-xl font-bold text-white border-b border-slate-700/50 pb-3">Academic Linkage (V2 Architecture)</h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-300 mb-2">College Silo Linkage</label>
-                <select
-                  value={profile.college_id || ''} onChange={(e) => update('college_id', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500"
-                >
-                  <option value="">Independent Professional / Not in College</option>
-                  {colleges.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-500 mt-2">Select a college to unlock exclusive B2B campus placement jobs.</p>
-              </div>
-
-              {profile.college_id && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Enrollment / Roll No *</label>
-                    <input required value={profile.enrollment_number || ''} onChange={e => update('enrollment_number', e.target.value)} className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500" placeholder="e.g. 21CS045" />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Department *</label>
-                    <input required value={profile.department || ''} onChange={e => update('department', e.target.value)} className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500" placeholder="Computer Science" />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Batch (Graduation Year) *</label>
-                    <input required type="number" value={profile.batch_year || ''} onChange={e => update('batch_year', Number(e.target.value))} className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500" />
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Current CGPA (0-10)</label>
-                <input type="number" step="0.01" min="0" max="10" value={profile.cgpa || ''} onChange={e => update('cgpa', e.target.value)} className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500" placeholder="8.50" />
-              </div>
-               
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-300 mb-2">Preferred Tech Role</label>
-                <input value={profile.preferred_role || ''} onChange={e => update('preferred_role', e.target.value)} className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500" placeholder="e.g. Frontend Developer, Data Analyst" />
-              </div>
-            </div>
-
-            {/* Smart Matching Skills Section */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2 mt-4 border-t border-slate-700/50 pt-6">
-                Technical Skills Tracker (Used for AI Mathematical Fit Scoring)
-              </label>
-              <div className="flex gap-2 mb-3">
-                <input
-                  value={skillInput}
-                  onChange={(e) => setSkillInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-                  className="flex-1 px-4 py-2.5 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white outline-none focus:border-emerald-500"
-                  placeholder="Type a skill and hit Enter..."
-                />
-                <button type="button" onClick={addSkill} className="px-4 bg-emerald-500/20 text-emerald-400 font-medium rounded-xl hover:bg-emerald-500/30">
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {profile.skills?.map(skill => (
-                  <span key={skill} className="px-3 py-1 bg-slate-800 border border-slate-600 text-slate-300 text-sm rounded-full flex items-center gap-2">
-                    {skill}
-                    <button type="button" onClick={() => removeSkill(skill)} className="text-slate-500 hover:text-red-400">&times;</button>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <button type="submit" disabled={loading} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 font-medium text-white rounded-xl shadow-lg shadow-emerald-500/20 transition disabled:opacity-50">
-              {loading ? 'Securing Linkage...' : 'Lock Profile & Enable Job Feed'}
-            </button>
-          </form>
-        </div>
-
-        {/* AI Resume Upload Panel */}
-        <div className="space-y-6">
-          <div className="glass rounded-2xl p-6 border-t-4 border-indigo-500 text-center">
-            <HiDocumentText className="w-12 h-12 text-indigo-400 mx-auto mb-3" />
-            <h3 className="font-bold text-white mb-2">Automated Resume AI</h3>
-            <p className="text-sm text-slate-400 mb-5">Upload your document to allow our AI to mathematically analyze and extract your core skills.</p>
-            
-            {profile.id ? (
-              <label className="block w-full py-2.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg text-white font-medium cursor-pointer transition text-sm">
-                {uploading ? 'Processing File...' : 'Upload PDF / DOCX'}
-                <input type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} disabled={uploading} />
-              </label>
-            ) : (
-              <div className="w-full py-2.5 bg-slate-800/50 border border-slate-700 text-slate-500 rounded-lg text-sm italic">
-                Save your Academic Linkage Profile (on the left) first!
-              </div>
-            )}
-
-            {profile.resume_url && (
-               <a href={profile.resume_url} target="_blank" rel="noopener noreferrer" className="block mt-4 text-sm font-medium text-indigo-400 hover:text-indigo-300">
-                 View Successfully Uploaded Resume
-               </a>
-            )}
+      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <form className="th-section space-y-5" onSubmit={saveProfile}>
+          <div>
+            <p className="th-label">Academic profile</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Student information</h2>
           </div>
-        </div>
+
+          <label className="block space-y-2">
+            <span className="th-label">Batch</span>
+            <select className="th-input" value={form.batch_id} onChange={(event) => setForm((current) => ({ ...current, batch_id: event.target.value }))}>
+              <option value="">Select a batch</option>
+              {batches.map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {batch.college_name} · {batch.name} · {batch.department}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">Enrollment number</span>
+              <input className="th-input" value={form.enrollment_number} onChange={(event) => setForm((current) => ({ ...current, enrollment_number: event.target.value }))} required />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">Preferred role</span>
+              <input className="th-input" value={form.preferred_role} onChange={(event) => setForm((current) => ({ ...current, preferred_role: event.target.value }))} placeholder="Frontend Developer" />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block space-y-2">
+              <span className="th-label">CGPA</span>
+              <input className="th-input" max="10" min="0" step="0.1" type="number" value={form.cgpa} onChange={(event) => setForm((current) => ({ ...current, cgpa: event.target.value }))} />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">Active backlogs</span>
+              <input className="th-input" min="0" type="number" value={form.active_backlogs} onChange={(event) => setForm((current) => ({ ...current, active_backlogs: event.target.value }))} />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">History backlogs</span>
+              <input className="th-input" min="0" type="number" value={form.history_backlogs} onChange={(event) => setForm((current) => ({ ...current, history_backlogs: event.target.value }))} />
+            </label>
+          </div>
+
+          <label className="block space-y-2">
+            <span className="th-label">Skills</span>
+            <input className="th-input" value={form.skills} onChange={(event) => setForm((current) => ({ ...current, skills: event.target.value }))} placeholder="React, Node.js, Tailwind CSS" />
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">LinkedIn URL</span>
+              <input className="th-input" value={form.linkedin_url} onChange={(event) => setForm((current) => ({ ...current, linkedin_url: event.target.value }))} placeholder="https://linkedin.com/in/..." />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">GitHub URL</span>
+              <input className="th-input" value={form.github_url} onChange={(event) => setForm((current) => ({ ...current, github_url: event.target.value }))} placeholder="https://github.com/..." />
+            </label>
+          </div>
+
+          <button className="th-btn-primary" disabled={saving} type="submit">
+            {saving ? 'Saving…' : 'Save student profile'}
+          </button>
+        </form>
+
+        <section className="space-y-4">
+          <div className="th-section">
+            <p className="th-label">Resume intelligence</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Upload and extract skills</h2>
+            <p className="mt-3 text-sm leading-7 text-ink-soft">
+              Resume upload stores your file in Supabase Storage and enriches your profile with parsed skills.
+            </p>
+
+            <label className="th-btn-secondary mt-6 cursor-pointer">
+              {uploading ? 'Uploading…' : 'Upload resume'}
+              <input className="hidden" type="file" accept=".pdf,.doc,.docx" onChange={uploadResume} />
+            </label>
+
+            {profile?.resume_url ? (
+              <a className="th-btn-ghost mt-4 inline-flex" href={profile.resume_url} rel="noreferrer" target="_blank">
+                Open current resume
+              </a>
+            ) : null}
+          </div>
+
+          <div className="th-section">
+            <p className="th-label">AI extraction summary</p>
+            <div className="mt-4 space-y-3 text-sm text-ink-soft">
+              <p>Name: {resumeInsights?.name || 'Not extracted yet'}</p>
+              <p>Email: {resumeInsights?.email || 'Not extracted yet'}</p>
+              <p>Department: {resumeInsights?.department || profile?.department || 'Not extracted yet'}</p>
+              <p>Batch year: {resumeInsights?.batch_year || profile?.graduation_year || 'Not extracted yet'}</p>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {(resumeInsights?.skills || profile?.parsed_resume_skills || []).map((skill) => (
+                <span key={skill} className="th-badge bg-accent-soft text-orange-900">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </AppShell>
   );
 }

@@ -42,18 +42,33 @@ class SmartMatcher:
             # Hybrid Score Formulation (60% ML Vector Similarity + 40% Keyword Heuristics)
             req_score = (len(matched_skills) / max(1, len(job_requirements))) * 100
             final_score = (nlp_sim_score * 0.6) + (req_score * 0.4)
+            fit_score = round(min(100.0, final_score), 2)
+
+            if fit_score >= 75:
+                fit_band = 'strong'
+                explanation = 'Your profile aligns well with the role requirements and job language.'
+            elif fit_score >= 45:
+                fit_band = 'moderate'
+                explanation = 'You match part of the stack, but a few important skills still need work.'
+            else:
+                fit_band = 'low'
+                explanation = 'The role has notable gaps versus your current recorded skills.'
             
             return {
-                "fit_score": round(min(100.0, final_score), 2),
+                "fit_score": fit_score,
+                "fit_band": fit_band,
                 "matched_skills": matched_skills,
                 "missing_skills": missing_skills,
-                "nlp_similarity": round(nlp_sim_score, 2)
+                "nlp_similarity": round(nlp_sim_score, 2),
+                "explanation": explanation,
             }
         except Exception as e:
             logger.error(f"Matcher logic error: {e}")
             return {
                 "fit_score": 0.0,
+                "fit_band": "low",
                 "matched_skills": [],
                 "missing_skills": job_requirements,
+                "explanation": "Unable to compute a reliable match score right now.",
                 "error": str(e)
             }

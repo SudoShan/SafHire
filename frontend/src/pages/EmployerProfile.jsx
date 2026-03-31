@@ -1,276 +1,286 @@
-import { useState, useEffect } from 'react';
-import api from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { HiOfficeBuilding, HiGlobeAlt, HiShieldCheck, HiOutlineBadgeCheck, HiMail } from 'react-icons/hi';
+import AppShell from '../components/AppShell';
+import EmptyState from '../components/EmptyState';
+import LoadingScreen from '../components/LoadingScreen';
+import PageHeader from '../components/PageHeader';
+import StatusBadge from '../components/StatusBadge';
+import api, { getApiError } from '../lib/api';
 
 export default function EmployerProfile() {
-  const [loading, setLoading] = useState(false);
-  const [dnsVerifying, setDnsVerifying] = useState(false);
-  const [profile, setProfile] = useState({
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [colleges, setColleges] = useState([]);
+  const [accessCollegeId, setAccessCollegeId] = useState('');
+  const [accessReason, setAccessReason] = useState('');
+  const [form, setForm] = useState({
     company_name: '',
-    company_email: '',
+    company_type: 'startup',
+    official_email: '',
     company_domain: '',
-    company_website: '',
-    company_description: '',
-    industry: 'Technology',
-    company_size: '1-10',
-    domain_verified: false,
-    credibility_score: 50.00
+    website: '',
+    linkedin_url: '',
+    company_logo_url: '',
+    company_size: '',
+    registration_document_url: '',
   });
 
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpSending, setOtpSending] = useState(false);
-  const [otpInput, setOtpInput] = useState('');
-  const [otpVerifying, setOtpVerifying] = useState(false);
-
-  useEffect(() => {
-    api.get('/employers/profile').then(res => {
-      if (res.data.profile) setProfile(res.data.profile);
-    }).catch(() => {});
-  }, []);
-
-  const update = (f, v) => setProfile(p => ({ ...p, [f]: v }));
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  const loadProfile = async () => {
     try {
-      const { data } = await api.post('/employers/profile', profile);
-      setProfile(data.profile);
-      toast.success('Company profile saved successfully!');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to update profile');
+      const [profileResponse, collegesResponse] = await Promise.all([
+        api.get('/employers/profile').catch(() => ({ data: { profile: null } })),
+        api.get('/employers/colleges').catch(() => ({ data: { colleges: [] } })),
+      ]);
+
+      const employerProfile = profileResponse.data.profile || null;
+      setProfile(employerProfile);
+      setColleges(collegesResponse.data.colleges || []);
+
+      if (employerProfile) {
+        setForm({
+          company_name: employerProfile.company_name || '',
+          company_type: employerProfile.company_type || 'startup',
+          official_email: employerProfile.official_email || '',
+          company_domain: employerProfile.company_domain || '',
+          website: employerProfile.website || '',
+          linkedin_url: employerProfile.linkedin_url || '',
+          company_logo_url: employerProfile.company_logo_url || '',
+          company_size: employerProfile.company_size || '',
+          registration_document_url: employerProfile.registration_document_url || '',
+        });
+      }
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to load employer profile'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSendOTP = async () => {
-    if (!profile.company_email) return toast.error('Save your company email first');
-    setOtpSending(true);
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const approvedColleges = useMemo(
+    () => colleges.filter((college) => college.access?.status === 'approved'),
+    [colleges],
+  );
+
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+
     try {
-      const { data } = await api.post('/employers/send-otp', { email: profile.company_email });
-      setOtpSent(true);
-      toast.success('OTP Sent!');
-      
-      // Since you haven't put actual email SMTP credentials, our backend securely returns it in dev mode!
-      if (data.otp_dev) {
-        toast('Since SMTP is off, your OTP is: ' + data.otp_dev, { duration: 8000, icon: '🔧' });
-      }
-    } catch (err) {
-      toast.error('Failed to send OTP');
+      const { data } = await api.post('/employers/profile', form);
+      setProfile((current) => ({ ...(current || {}), ...data.profile }));
+      toast.success('Employer profile saved.');
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to save employer profile'));
     } finally {
-      setOtpSending(false);
+      setSaving(false);
     }
   };
 
-  const handleVerifyOTP = async () => {
-    if (otpInput.length !== 6) return toast.error('Enter 6 digit OTP');
-    setOtpVerifying(true);
+  const verifyDomain = async () => {
     try {
-      await api.post('/employers/verify-otp', { email: profile.company_email, otp: otpInput });
-      toast.success('Email successfully verified! (+Credibility gain)');
-      setProfile(p => ({ ...p, email_verified: true }));
-      setOtpSent(false); // reset
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Invalid or Expired OTP');
-    } finally {
-      setOtpVerifying(false);
+      await api.post('/employers/verify-domain');
+      toast.success('Domain verification requested.');
+      loadProfile();
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to verify domain'));
     }
   };
 
-  const handleDNSVerify = async () => {
-    if (!profile.company_domain) return toast.error('Save your company domain first');
-    setDnsVerifying(true);
+  const requestCollegeAccess = async (event) => {
+    event.preventDefault();
+    if (!accessCollegeId) {
+      toast.error('Choose a college first.');
+      return;
+    }
+
     try {
-      const { data } = await api.post('/employers/verify-domain', { domain: profile.company_domain });
-      if (data.verified) {
-        toast.success('Domain verified successfully! (+Credibility gain)');
-        setProfile(p => ({ ...p, domain_verified: true }));
-      } else {
-        toast.error('DNS Verification Failed: No MX/A records found for this domain', { duration: 5000 });
-      }
-    } catch (err) {
-      toast.error('DNS Verification service unavailable');
-    } finally {
-      setDnsVerifying(false);
+      await api.post('/employers/request-access', {
+        college_id: accessCollegeId,
+        reason: accessReason,
+      });
+      toast.success('College access request submitted.');
+      setAccessReason('');
+      setAccessCollegeId('');
+      loadProfile();
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to request college access'));
     }
   };
+
+  if (loading) {
+    return (
+      <AppShell>
+        <LoadingScreen label="Loading employer profile…" />
+      </AppShell>
+    );
+  }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="mb-8 animate-fade-in flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <HiOfficeBuilding className="w-8 h-8 text-indigo-400" />
-            Company Profile
-          </h1>
-          <p className="text-slate-400 mt-2">Complete your profile to post jobs and build trust with students.</p>
-        </div>
-        
-        {/* Credibility Badge */}
-        <div className="glass px-6 py-4 rounded-2xl border border-indigo-500/20 text-center animate-slide-up">
-          <p className="text-sm text-slate-400 mb-1">Credibility Score</p>
-          <div className="flex items-center gap-2 justify-center text-2xl font-bold text-emerald-400">
-            <HiShieldCheck className="w-6 h-6" /> {profile.credibility_score}
+    <AppShell>
+      <section className="th-section">
+        <PageHeader
+          kicker="Employer verification"
+          title="Build a credible recruiter identity"
+          description="TrustHire separates global employer verification from college-specific access so recruiters can hire publicly or through CDC-managed campus workflows."
+        />
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+        <form className="th-section space-y-5" onSubmit={saveProfile}>
+          <div>
+            <p className="th-label">Company profile</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Employer identity</h2>
           </div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2">
-          <form onSubmit={handleSubmit} className="glass rounded-2xl p-8 space-y-6 animate-fade-in">
-            <h2 className="text-xl font-semibold text-white mb-4">Core Information</h2>
+          <label className="block space-y-2">
+            <span className="th-label">Company name</span>
+            <input className="th-input" value={form.company_name} onChange={(event) => setForm((current) => ({ ...current, company_name: event.target.value }))} required />
+          </label>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">Company type</span>
+              <select className="th-input" value={form.company_type} onChange={(event) => setForm((current) => ({ ...current, company_type: event.target.value }))}>
+                <option value="mnc">MNC</option>
+                <option value="startup">Startup</option>
+                <option value="agency">Agency</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">Company size</span>
+              <input className="th-input" value={form.company_size} onChange={(event) => setForm((current) => ({ ...current, company_size: event.target.value }))} placeholder="500-1000 employees" />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">Official email</span>
+              <input className="th-input" type="email" value={form.official_email} onChange={(event) => setForm((current) => ({ ...current, official_email: event.target.value }))} required />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">Company domain</span>
+              <input className="th-input" value={form.company_domain} onChange={(event) => setForm((current) => ({ ...current, company_domain: event.target.value }))} placeholder="acme.com" required />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">Website</span>
+              <input className="th-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} placeholder="https://acme.com" />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">LinkedIn</span>
+              <input className="th-input" value={form.linkedin_url} onChange={(event) => setForm((current) => ({ ...current, linkedin_url: event.target.value }))} placeholder="https://linkedin.com/company/..." />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="th-label">Logo URL</span>
+              <input className="th-input" value={form.company_logo_url} onChange={(event) => setForm((current) => ({ ...current, company_logo_url: event.target.value }))} placeholder="https://..." />
+            </label>
+            <label className="block space-y-2">
+              <span className="th-label">Registration document URL</span>
+              <input className="th-input" value={form.registration_document_url} onChange={(event) => setForm((current) => ({ ...current, registration_document_url: event.target.value }))} placeholder="https://..." />
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button className="th-btn-primary" disabled={saving} type="submit">
+              {saving ? 'Saving…' : 'Save employer profile'}
+            </button>
+            <button className="th-btn-secondary" type="button" onClick={verifyDomain}>
+              Run domain verification
+            </button>
+          </div>
+        </form>
+
+        <section className="space-y-4">
+          <div className="th-section">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Company Name *</label>
-                <input
-                  required value={profile.company_name || ''} onChange={e => update('company_name', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                  placeholder="e.g. Acme Corp"
-                />
+                <p className="th-label">Trust status</p>
+                <h2 className="mt-1 text-xl font-bold text-ink">Verification overview</h2>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Company Email *</label>
-                <input
-                  type="email" required value={profile.company_email || ''} onChange={e => update('company_email', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                  placeholder="hr@acmecorp.com"
-                />
-              </div>
+              {profile?.verification_status ? <StatusBadge status={profile.verification_status} /> : null}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Domain Name *</label>
-                <div className="relative">
-                  <HiGlobeAlt className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    required value={profile.company_domain || ''} onChange={e => update('company_domain', e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                    placeholder="acmecorp.com"
-                  />
+            {profile ? (
+              <div className="mt-4 space-y-3">
+                <div className="th-panel p-4">
+                  <p className="th-label">Credibility score</p>
+                  <p className="mt-2 text-4xl font-extrabold text-ink">{Math.round(profile.credibility_score || 0)}</p>
+                </div>
+                <div className="th-panel p-4">
+                  <p className="th-label">Recent verification events</p>
+                  <div className="mt-3 space-y-3">
+                    {(profile.verifications || []).slice(0, 4).map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-ink">{item.verification_type}</p>
+                          <p className="mt-1 text-sm text-ink-soft">{item.notes || 'No notes'}</p>
+                        </div>
+                        <StatusBadge status={item.status} />
+                      </div>
+                    ))}
+                    {(!profile.verifications || profile.verifications.length === 0) ? (
+                      <p className="text-sm text-ink-soft">No verification records yet.</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">External Website</label>
-                <input
-                  type="url" value={profile.company_website || ''} onChange={e => update('company_website', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                  placeholder="https://acmecorp.com"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Industry</label>
-                <input
-                  value={profile.industry || ''} onChange={e => update('industry', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                  placeholder="e.g. FinTech, SaaS"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Company Size</label>
-                <select
-                  value={profile.company_size || '1-10'} onChange={e => update('company_size', e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none transition"
-                >
-                  <option value="1-10">1-10 Employees</option>
-                  <option value="11-50">11-50 Employees</option>
-                  <option value="51-200">51-200 Employees</option>
-                  <option value="201-500">201-500 Employees</option>
-                  <option value="500+">500+ Employees</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Company Description</label>
-              <textarea
-                value={profile.company_description || ''} onChange={e => update('company_description', e.target.value)}
-                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white focus:border-indigo-500 outline-none h-32 resize-none transition"
-                placeholder="What exactly does your company do? What do you value?"
+            ) : (
+              <EmptyState
+                title="Profile not created yet"
+                description="Save your employer profile first so TrustHire can start verification and college access workflows."
               />
+            )}
+          </div>
+
+          <div className="th-section">
+            <p className="th-label">Campus access requests</p>
+            <h2 className="mt-1 text-xl font-bold text-ink">Request a college pipeline</h2>
+            <form className="mt-4 space-y-4" onSubmit={requestCollegeAccess}>
+              <select className="th-input" value={accessCollegeId} onChange={(event) => setAccessCollegeId(event.target.value)}>
+                <option value="">Select a college</option>
+                {colleges.map((college) => (
+                  <option key={college.id} value={college.id}>
+                    {college.name} · {college.location}
+                  </option>
+                ))}
+              </select>
+              <textarea className="th-input min-h-24" value={accessReason} onChange={(event) => setAccessReason(event.target.value)} placeholder="Explain your hiring plan, target batch, or role type." />
+              <button className="th-btn-primary" type="submit">
+                Request access
+              </button>
+            </form>
+
+            <div className="mt-5 space-y-3">
+              {approvedColleges.length > 0 ? (
+                approvedColleges.map((college) => (
+                  <div key={college.id} className="th-panel p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-ink">{college.name}</p>
+                        <p className="mt-1 text-sm text-ink-soft">{college.location}</p>
+                      </div>
+                      <StatusBadge status={college.access?.status} />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-ink-soft">No approved college access yet.</p>
+              )}
             </div>
-
-            <button
-              type="submit" disabled={loading}
-              className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : 'Save Profile'}
-            </button>
-          </form>
-        </div>
-
-        {/* Verification Section */}
-        <div className="space-y-4 animate-slide-up" style={{ animationDelay: '100ms' }}>
-          <div className="glass rounded-2xl p-6 border-t-4 border-indigo-500">
-            <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              <HiOutlineBadgeCheck className="w-6 h-6 text-indigo-400" />
-              Domain Validation
-            </h3>
-            <p className="text-sm text-slate-400 mb-4">
-              Verify your company's web domain (DNS records) to boost your credibility score and bypass standard scam flags.
-            </p>
-            
-            {profile.domain_verified ? (
-              <div className="w-full py-2 bg-emerald-500/20 text-emerald-400 font-medium rounded-lg text-center flex justify-center items-center gap-2">
-                <HiShieldCheck className="w-5 h-5" /> Verified
-              </div>
-            ) : (
-              <button 
-                onClick={handleDNSVerify} disabled={dnsVerifying}
-                className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition"
-              >
-                {dnsVerifying ? 'Checking DNS...' : 'Verify DNS Records'}
-              </button>
-            )}
           </div>
-          
-          <div className="glass rounded-2xl p-6 border-t-4 border-cyan-500 animate-slide-up" style={{ animationDelay: '200ms' }}>
-             <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              <HiMail className="w-6 h-6 text-cyan-400" />
-              Official Email
-            </h3>
-            <p className="text-sm text-slate-400 mb-4">
-              Verify your official company email address ({profile.company_email || 'save profile first'}).
-            </p>
-
-            {profile.email_verified ? (
-              <div className="w-full py-2 bg-emerald-500/20 text-emerald-400 font-medium rounded-lg text-center flex justify-center items-center gap-2">
-                <HiShieldCheck className="w-5 h-5" /> Verified
-              </div>
-            ) : !otpSent ? (
-              <button 
-                onClick={handleSendOTP} disabled={otpSending}
-                className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition"
-              >
-                {otpSending ? 'Sending OTP...' : 'Send Verification Code'}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  value={otpInput}
-                  onChange={e => setOtpInput(e.target.value)}
-                  placeholder="Enter 6-digit OTP"
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-600/50 rounded-lg text-white focus:border-cyan-500 outline-none text-center tracking-widest text-lg"
-                  maxLength={6}
-                />
-                <button 
-                  onClick={handleVerifyOTP} disabled={otpVerifying}
-                  className="w-full py-2 bg-cyan-500 hover:bg-cyan-600 text-white font-medium rounded-lg transition"
-                >
-                  {otpVerifying ? 'Verifying...' : 'Verify OTP'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        </section>
       </div>
-    </div>
+    </AppShell>
   );
 }

@@ -1,132 +1,126 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { useState } from 'react';
-import { HiShieldCheck, HiMenu, HiX } from 'react-icons/hi';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  HiOutlineArrowRight,
+  HiOutlineShieldCheck,
+  HiBars3,
+  HiXMark,
+} from 'react-icons/hi2';
+import { useAuth } from '../context/AuthContext';
+import { getRoleHome, roleLabels } from '../lib/utils';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout({ silent: true });
     navigate('/login');
   };
 
-  const navLinks = user ? [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/jobs', label: 'Jobs' },
-    ...(user.role === 'student' || user.role === 'alumni'
-      ? [{ to: '/my-applications', label: 'Applications' }]
-      : []),
-    ...(user.role === 'employer'
-      ? [{ to: '/my-jobs', label: 'My Jobs' }, { to: '/post-job', label: 'Post Job' }]
-      : []),
-    ...(user.role === 'admin'
-      ? [{ to: '/admin', label: 'Admin Panel' }]
-      : []),
-  ] : [];
-
   return (
-    <nav className="sticky top-0 z-50 glass border-b border-slate-700/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group">
-            <HiShieldCheck className="w-8 h-8 text-indigo-400 group-hover:text-cyan-400 transition-colors" />
-            <span className="text-xl font-bold gradient-text">TrustHire</span>
-          </Link>
-
-          {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-1">
-            {navLinks.map(link => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-all duration-200"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-
-          {/* Auth */}
-          <div className="hidden md:flex items-center gap-3">
-            {user ? (
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-sm font-medium text-slate-200">{user.full_name}</p>
-                  <p className="text-xs text-slate-400 capitalize">{user.role}</p>
-                </div>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-semibold text-sm">
-                  {user.full_name?.charAt(0)?.toUpperCase()}
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="px-3 py-1.5 text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Link to="/login" className="px-4 py-2 text-sm text-slate-300 hover:text-white transition">
-                  Sign In
-                </Link>
-                <Link
-                  to="/register"
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg transition-all shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40"
-                >
-                  Get Started
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile toggle */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 text-slate-300 hover:text-white"
+    <header className="th-container pt-4 md:pt-5">
+      <nav
+        className="flex items-center justify-between gap-4 rounded-2xl px-5 py-3"
+        style={{
+          background: 'rgba(20,30,51,0.8)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(148,163,184,0.1)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
+        }}
+      >
+        {/* Logo */}
+        <Link to="/" className="flex items-center gap-3 flex-shrink-0">
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-xl"
+            style={{ background: 'linear-gradient(135deg, #6366f1 0%, #06b6d4 100%)' }}
           >
-            {mobileOpen ? <HiX className="w-6 h-6" /> : <HiMenu className="w-6 h-6" />}
-          </button>
+            <HiOutlineShieldCheck className="h-5 w-5 text-white" />
+          </div>
+          <div className="hidden sm:block">
+            <p className="text-sm font-bold text-ink leading-none">TrustHire</p>
+            <p className="text-xs text-ink-soft leading-none mt-0.5">Verified campus hiring</p>
+          </div>
+        </Link>
+
+        {/* Desktop nav */}
+        <div className="hidden md:flex items-center gap-1">
+          <Link className="th-btn-ghost text-sm" to="/jobs">
+            Explore Jobs
+          </Link>
+          {user ? (
+            <>
+              <Link className="th-btn-secondary text-sm" to={getRoleHome(user.role)}>
+                {roleLabels[user.role] || 'Workspace'}
+              </Link>
+              <button type="button" className="th-btn-primary text-sm" onClick={handleLogout}>
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link className="th-btn-ghost text-sm" to="/login">
+                Sign In
+              </Link>
+              <Link className="th-btn-primary text-sm" to="/register">
+                Get Started
+                <HiOutlineArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </>
+          )}
         </div>
 
-        {/* Mobile Nav */}
-        {mobileOpen && (
-          <div className="md:hidden pb-4 animate-fade-in">
-            {navLinks.map(link => (
+        {/* Mobile toggle */}
+        <button
+          type="button"
+          className="md:hidden th-btn-ghost p-2"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-label="Toggle menu"
+        >
+          {mobileOpen ? <HiXMark className="h-5 w-5" /> : <HiBars3 className="h-5 w-5" />}
+        </button>
+      </nav>
+
+      {/* Mobile menu */}
+      {mobileOpen && (
+        <div
+          className="mt-2 rounded-2xl p-4 space-y-2 animate-fade-in"
+          style={{
+            background: 'rgba(20,30,51,0.95)',
+            border: '1px solid rgba(148,163,184,0.1)',
+          }}
+        >
+          <Link className="th-btn-ghost w-full justify-start" to="/jobs" onClick={() => setMobileOpen(false)}>
+            Explore Jobs
+          </Link>
+          {user ? (
+            <>
               <Link
-                key={link.to}
-                to={link.to}
+                className="th-btn-secondary w-full justify-start"
+                to={getRoleHome(user.role)}
                 onClick={() => setMobileOpen(false)}
-                className="block px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-lg"
               >
-                {link.label}
+                {roleLabels[user.role] || 'Workspace'}
               </Link>
-            ))}
-            {user ? (
-              <button
-                onClick={() => { handleLogout(); setMobileOpen(false); }}
-                className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg mt-2"
-              >
-                Logout
+              <button type="button" className="th-btn-primary w-full justify-center" onClick={handleLogout}>
+                Sign Out
               </button>
-            ) : (
-              <div className="flex flex-col gap-2 mt-2">
-                <Link to="/login" onClick={() => setMobileOpen(false)}
-                  className="px-4 py-2 text-sm text-slate-300 hover:text-white text-center rounded-lg">
-                  Sign In
-                </Link>
-                <Link to="/register" onClick={() => setMobileOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-500 rounded-lg text-center">
-                  Get Started
-                </Link>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </nav>
+            </>
+          ) : (
+            <>
+              <Link className="th-btn-ghost w-full justify-start" to="/login" onClick={() => setMobileOpen(false)}>
+                Sign In
+              </Link>
+              <Link className="th-btn-primary w-full justify-center" to="/register" onClick={() => setMobileOpen(false)}>
+                Get Started
+                <HiOutlineArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+    </header>
   );
 }

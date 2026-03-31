@@ -210,21 +210,22 @@ class InterviewPrepGenerator:
         self.openai_key = os.getenv('OPENAI_API_KEY', '')
 
     def generate(self, job_title: str, job_description: str = '',
-                 required_skills: List[str] = []) -> dict:
+                 required_skills: List[str] = [], student_skills: List[str] = None) -> dict:
         """Generate interview preparation materials"""
+        student_skills = student_skills or []
         
         # Try LLM-based generation first
         if self.openai_key and self.openai_key != 'your-openai-api-key':
             try:
-                return self._generate_with_llm(job_title, job_description, required_skills)
+                return self._generate_with_llm(job_title, job_description, required_skills, student_skills)
             except Exception as e:
                 logger.warning(f"LLM generation failed: {e}")
 
         # Fallback to rule-based generation
-        return self._generate_rule_based(job_title, job_description, required_skills)
+        return self._generate_rule_based(job_title, job_description, required_skills, student_skills)
 
     def _generate_with_llm(self, job_title: str, job_description: str,
-                           required_skills: List[str]) -> dict:
+                           required_skills: List[str], student_skills: List[str]) -> dict:
         """Generate with LLM"""
         from openai import OpenAI
         client = OpenAI(api_key=self.openai_key)
@@ -234,13 +235,17 @@ class InterviewPrepGenerator:
 Job Title: {job_title}
 Description: {job_description}
 Required Skills: {', '.join(required_skills)}
+Student Skills: {', '.join(student_skills)}
 
 Provide:
-1. 8-10 preparation topics with brief descriptions
-2. 10-12 likely interview questions
+1. 5-7 roadmap steps
+2. 8-10 important topics
+3. 8-10 likely interview questions
+4. 4-5 resume tips
+5. a skill gap analysis with matched and missing skills
 
 Format as JSON:
-{{"topics": ["topic1", "topic2"], "questions": ["q1", "q2"]}}"""
+{{"roadmap": ["step1", "step2"], "important_topics": ["topic1", "topic2"], "likely_questions": ["q1", "q2"], "resume_tips": ["tip1"], "skill_gap_analysis": {{"matched_skills": ["React"], "missing_skills": ["Docker"], "summary": "..."}}}}"""
 
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -259,10 +264,21 @@ Format as JSON:
             result['generated_by'] = 'llm'
             return result
         except json.JSONDecodeError:
-            return {'topics': [content], 'questions': [], 'generated_by': 'llm_raw'}
+            return {
+                'roadmap': ['Review the full job brief and identify the core evaluation themes.'],
+                'important_topics': [content],
+                'likely_questions': [],
+                'resume_tips': [],
+                'skill_gap_analysis': {
+                    'matched_skills': student_skills,
+                    'missing_skills': [skill for skill in required_skills if skill not in student_skills],
+                    'summary': 'Generated from raw LLM output.',
+                },
+                'generated_by': 'llm_raw',
+            }
 
     def _generate_rule_based(self, job_title: str, job_description: str,
-                             required_skills: List[str]) -> dict:
+                             required_skills: List[str], student_skills: List[str]) -> dict:
         """Rule-based preparation generation"""
         title_lower = job_title.lower()
         
@@ -303,14 +319,47 @@ Format as JSON:
         topics = list(dict.fromkeys(topics))[:12]
         questions = list(dict.fromkeys(questions))[:15]
 
+        student_skills_lower = {skill.lower() for skill in student_skills}
+        matched_skills = [skill for skill in required_skills if skill.lower() in student_skills_lower]
+        missing_skills = [skill for skill in required_skills if skill.lower() not in student_skills_lower]
+
+        roadmap = [
+            f'Review the {domain.replace("_", " ")} fundamentals that map to the role.',
+            'Practice recent project walkthroughs with concise impact-focused storytelling.',
+            'Solve 2-3 mock interview prompts under time pressure.',
+            'Refine resume bullets so they highlight measurable outcomes and role-fit evidence.',
+            'Prepare thoughtful questions about the team, stack, and hiring expectations.',
+        ]
+
+        resume_tips = [
+            'Move your strongest role-relevant projects into the top third of the resume.',
+            'Quantify outcomes with metrics, scale, latency, revenue, or user impact where possible.',
+            'Mirror the job language for core skills without stuffing keywords.',
+            'Keep recent, trusted technologies visible and remove stale low-signal tools.',
+            'Add one resume bullet that proves collaboration, ownership, or problem-solving.',
+        ]
+
+        gap_summary = (
+            'You already match a meaningful portion of the target stack.'
+            if len(matched_skills) >= len(missing_skills)
+            else 'This role has a few important gaps, so focus prep on the missing skills first.'
+        )
+
         return {
-            'topics': topics,
-            'questions': questions,
+            'roadmap': roadmap,
+            'important_topics': topics,
+            'likely_questions': questions,
+            'resume_tips': resume_tips,
+            'skill_gap_analysis': {
+                'matched_skills': matched_skills,
+                'missing_skills': missing_skills,
+                'summary': gap_summary,
+            },
             'domain': domain,
             'generated_by': 'rule_based'
         }
 
-    def summarize_discussion(self, messages: str) -> str:
+    def summarize_discussion(self, messages: str) -> dict:
         """Summarize a discussion thread"""
         if self.openai_key and self.openai_key != 'your-openai-api-key':
             try:
@@ -320,7 +369,7 @@ Format as JSON:
 
         return self._summarize_rule_based(messages)
 
-    def _summarize_with_llm(self, messages: str) -> str:
+    def _summarize_with_llm(self, messages: str) -> dict:
         """Summarize with LLM"""
         from openai import OpenAI
         client = OpenAI(api_key=self.openai_key)
@@ -328,15 +377,26 @@ Format as JSON:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Summarize this job discussion thread concisely, highlighting key points, concerns raised, and overall sentiment."},
+                {"role": "system", "content": "Summarize this job discussion thread concisely. Return JSON with summary, common_questions, interview_difficulty, and preparation_topics."},
                 {"role": "user", "content": messages}
             ],
             temperature=0.5,
-            max_tokens=300
+            max_tokens=500
         )
-        return response.choices[0].message.content
+        import json
 
-    def _summarize_rule_based(self, messages: str) -> str:
+        content = response.choices[0].message.content
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return {
+                'summary': content,
+                'common_questions': [],
+                'interview_difficulty': 'medium',
+                'preparation_topics': [],
+            }
+
+    def _summarize_rule_based(self, messages: str) -> dict:
         """Basic rule-based summarization"""
         lines = messages.strip().split('\n')
         total = len(lines)
@@ -373,4 +433,22 @@ Format as JSON:
             summary += f"Key topics discussed: {', '.join(key_topics)}. "
         summary += "Please refer to the full thread for detailed insights."
 
-        return summary
+        common_questions = []
+        for line in lines:
+            cleaned = line.strip()
+            if '?' in cleaned:
+                common_questions.append(cleaned.split(':', 1)[-1].strip())
+
+        interview_difficulty = 'medium'
+        lowered = messages.lower()
+        if any(word in lowered for word in ['hard', 'difficult', 'tough', 'challenging']):
+            interview_difficulty = 'high'
+        elif any(word in lowered for word in ['easy', 'simple', 'straightforward']):
+            interview_difficulty = 'low'
+
+        return {
+            'summary': summary,
+            'common_questions': list(dict.fromkeys(common_questions))[:5],
+            'interview_difficulty': interview_difficulty,
+            'preparation_topics': key_topics,
+        }

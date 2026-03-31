@@ -1,164 +1,192 @@
 """
-TrustHire AI Microservice
-Multi-layered scam detection, resume parsing, and interview preparation
+TrustHire AI microservice.
+
+This service is intended to be called by the backend only.
 """
 
-import os
 import logging
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-from dotenv import load_dotenv
+import os
+from typing import Any, List, Optional
 
-from scam_detector import ScamDetector
-from resume_parser import ResumeParser
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
 from interview_prep import InterviewPrepGenerator
+from resume_parser import ResumeParser
+from scam_detector import ScamDetector
 from smart_matcher import SmartMatcher
 
 load_dotenv()
 
-# Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+AI_INTERNAL_SECRET = os.getenv("AI_INTERNAL_SECRET", "trusthire-local-secret")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5000").split(",")
+    if origin.strip()
+]
 
 app = FastAPI(
     title="TrustHire AI Service",
-    description="AI-powered scam detection, resume parsing, interview preparation, and applicant matching.",
-    version="1.0.0"
+    description="Backend-only AI workflows for TrustHire.",
+    version="2.0.0",
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "x-internal-secret"],
 )
 
-# Initialize services
 scam_detector = ScamDetector()
 resume_parser = ResumeParser()
 interview_prep = InterviewPrepGenerator()
 smart_matcher = SmartMatcher()
 
-# ==================== Request/Response Models ====================
 
 class JobAnalysisRequest(BaseModel):
     title: str
     description: str
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
-    requirements: List[str] = []
+    requirements: List[str] = Field(default_factory=list)
+
 
 class ScamAnalysisResponse(BaseModel):
     scam_score: float
     risk_level: str
     explanation: str
-    keyword_flags: List[str]
-    layer_results: dict
+    extracted_red_flags: List[str]
+    match_quality: str
+    layer_results: dict[str, Any]
 
-class InterviewPrepRequest(BaseModel):
-    job_title: str
-    job_description: str = ""
-    required_skills: List[str] = []
+
+class MatchRequest(BaseModel):
+    student_skills: List[str] = Field(default_factory=list)
+    job_description: str
+    job_requirements: List[str] = Field(default_factory=list)
+
 
 class DiscussionSummaryRequest(BaseModel):
     messages: str
     job_id: str = ""
 
-class MatchRequest(BaseModel):
-    student_skills: List[str]
-    job_description: str
-    job_requirements: List[str] = []
 
-# ==================== Endpoints ====================
+class DiscussionSummaryResponse(BaseModel):
+    summary: str
+    common_questions: List[str]
+    interview_difficulty: str
+    preparation_topics: List[str]
+
+
+class PrepRequest(BaseModel):
+    job_title: str
+    job_description: str = ""
+    required_skills: List[str] = Field(default_factory=list)
+    student_skills: List[str] = Field(default_factory=list)
+
+
+@app.middleware("http")
+async def verify_internal_secret(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    internal_secret = request.headers.get("x-internal-secret")
+    if internal_secret != AI_INTERNAL_SECRET:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized AI access"})
+
+    return await call_next(request)
+
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "TrustHire AI", "version": "1.0.0"}
+    return {"status": "ok", "service": "TrustHire AI", "version": "2.0.0"}
 
 
 @app.post("/predict-scam", response_model=ScamAnalysisResponse)
 async def predict_scam(request: JobAnalysisRequest):
-    """
-    Multi-layered scam detection:
-    Layer 1: Keyword-based detection (rule-based)
-    Layer 2: ML classifier (TF-IDF + Logistic Regression)
-    Layer 3: LLM reasoning (explanation generation)
-    """
     try:
         result = scam_detector.analyze(
             title=request.title,
             description=request.description,
             salary_min=request.salary_min,
             salary_max=request.salary_max,
-            requirements=request.requirements
+            requirements=request.requirements,
         )
         return result
-    except Exception as e:
-        logger.error(f"Scam detection error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as error:
+        logger.exception("Scam detection failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
-
-@app.post("/parse-resume")
-async def parse_resume(file: UploadFile = File(...)):
-    """Parse resume and extract skills"""
-    try:
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        
-        content = await file.read()
-        result = resume_parser.parse(content, file.filename)
-        return result
-    except Exception as e:
-        logger.error(f"Resume parsing error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/interview-prep")
-async def generate_interview_prep(request: InterviewPrepRequest):
-    """Generate interview preparation topics and questions"""
-    try:
-        result = interview_prep.generate(
-            job_title=request.job_title,
-            job_description=request.job_description,
-            required_skills=request.required_skills
-        )
-        return result
-    except Exception as e:
-        logger.error(f"Interview prep error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/summarize-discussion")
-async def summarize_discussion(request: DiscussionSummaryRequest):
-    """Summarize discussion thread using AI"""
-    try:
-        # Fallback to interview prep if summarize isn't native
-        result = interview_prep.summarize_discussion(request.messages) if hasattr(interview_prep, 'summarize_discussion') else "Community discussion summarized by AI. Core concepts extracted successfully."
-        return {"summary": result}
-    except Exception as e:
-        logger.error(f"Discussion summarization error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/match-job")
 async def match_job(request: MatchRequest):
-    """Generate mathematical fit score between a student and a job"""
     try:
-        result = smart_matcher.calculate_match_score(
+        return smart_matcher.calculate_match_score(
             student_skills=request.student_skills,
             job_description=request.job_description,
-            job_requirements=request.job_requirements
+            job_requirements=request.job_requirements,
         )
-        return result
-    except Exception as e:
-        logger.error(f"Matcher error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as error:
+        logger.exception("Job matching failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@app.post("/summarize-discussion", response_model=DiscussionSummaryResponse)
+async def summarize_discussion(request: DiscussionSummaryRequest):
+    try:
+        return interview_prep.summarize_discussion(request.messages)
+    except Exception as error:
+        logger.exception("Discussion summarization failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@app.post("/generate-prep")
+async def generate_prep(request: PrepRequest):
+    try:
+        return interview_prep.generate(
+            job_title=request.job_title,
+            job_description=request.job_description,
+            required_skills=request.required_skills,
+            student_skills=request.student_skills,
+        )
+    except Exception as error:
+        logger.exception("Prep generation failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@app.post("/extract-resume-skills")
+async def extract_resume_skills(
+    file: UploadFile = File(...),
+    x_internal_secret: Optional[str] = Header(default=None),
+):
+    del x_internal_secret
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+
+        content = await file.read()
+        return resume_parser.parse(content, file.filename)
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.exception("Resume extraction failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("AI_PORT", 8000))
-    host = os.getenv("AI_HOST", "0.0.0.0")
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("AI_HOST", "0.0.0.0"),
+        port=int(os.getenv("AI_PORT", "8000")),
+        reload=os.getenv("AI_RELOAD", "true").lower() == "true",
+    )

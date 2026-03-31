@@ -1,189 +1,279 @@
 import { Link } from 'react-router-dom';
-import { HiShieldCheck, HiLightningBolt, HiUserGroup, HiChatAlt2, HiChartBar, HiArrowRight, HiStar } from 'react-icons/hi';
+import {
+  HiOutlineArrowRight,
+  HiOutlineBuildingLibrary,
+  HiOutlineChatBubbleLeftRight,
+  HiOutlineChartBarSquare,
+  HiOutlineShieldCheck,
+  HiOutlineSparkles,
+  HiOutlineUserGroup,
+  HiOutlineBriefcase,
+  HiOutlineCheckBadge,
+} from 'react-icons/hi2';
+import Navbar from '../components/Navbar';
+
+const features = [
+  {
+    icon: HiOutlineShieldCheck,
+    title: 'AI Scam Detection',
+    description: 'Every job posting is screened by a hybrid ML + rule-based engine before it reaches students.',
+    color: '#10b981',
+    bg: 'rgba(16,185,129,0.1)',
+  },
+  {
+    icon: HiOutlineBuildingLibrary,
+    title: 'CDC-Controlled Visibility',
+    description: 'College placement teams approve employers, assign jobs to batches, and keep campus data isolated.',
+    color: '#6366f1',
+    bg: 'rgba(99,102,241,0.1)',
+  },
+  {
+    icon: HiOutlineSparkles,
+    title: 'Smart Job Matching',
+    description: 'Students get a personalized feed with AI fit scores, prep roadmaps, and skill gap analysis.',
+    color: '#06b6d4',
+    bg: 'rgba(6,182,212,0.1)',
+  },
+  {
+    icon: HiOutlineChatBubbleLeftRight,
+    title: 'Community Discussions',
+    description: 'Per-job discussion threads with AI summaries, interview tips, and experience sharing.',
+    color: '#f97316',
+    bg: 'rgba(249,115,22,0.1)',
+  },
+  {
+    icon: HiOutlineChartBarSquare,
+    title: 'Role-Aware Analytics',
+    description: 'Students track progress, CDC teams monitor batch performance, admins watch fraud trends.',
+    color: '#8b5cf6',
+    bg: 'rgba(139,92,246,0.1)',
+  },
+  {
+    icon: HiOutlineCheckBadge,
+    title: 'Employer Verification',
+    description: 'MNCs verify via domain DNS. Startups submit LinkedIn, website, and registration documents.',
+    color: '#fb7185',
+    bg: 'rgba(251,113,133,0.1)',
+  },
+];
+
+const stats = [
+  { value: '5', label: 'User Roles', sub: 'Student to Super Admin' },
+  { value: '2', label: 'Hiring Flows', sub: 'Public + Campus CDC' },
+  { value: '100%', label: 'RLS Isolated', sub: 'Per-college data silos' },
+  { value: 'AI', label: 'Scam Detection', sub: 'Hybrid ML engine' },
+];
+
+const roles = [
+  { role: 'Student', desc: 'Smart feed, resume parsing, eligibility checks, prep tools', color: '#10b981' },
+  { role: 'Employer', desc: 'Verify company, post jobs, manage campus access requests', color: '#f97316' },
+  { role: 'CDC Admin', desc: 'Approve employers, create batches, assign campus drives', color: '#6366f1' },
+  { role: 'Super Admin', desc: 'Govern colleges, block bad actors, monitor fraud patterns', color: '#06b6d4' },
+];
 
 export default function Landing() {
-  const features = [
-    {
-      icon: HiShieldCheck,
-      title: 'AI Scam Detection',
-      desc: '3-layer AI engine analyzes every job posting for fraud indicators before it goes live.',
-      color: 'from-indigo-500 to-indigo-600'
-    },
-    {
-      icon: HiLightningBolt,
-      title: 'Smart Matching',
-      desc: 'AI-powered resume parsing and job eligibility filtering to find your perfect match.',
-      color: 'from-amber-500 to-amber-600'
-    },
-    {
-      icon: HiChartBar,
-      title: 'Credibility Scoring',
-      desc: 'Community-driven trust system with weighted voting ensures job quality.',
-      color: 'from-emerald-500 to-emerald-600'
-    },
-    {
-      icon: HiChatAlt2,
-      title: 'Discussion Forum',
-      desc: 'Each job has a discussion thread with AI-powered summaries.',
-      color: 'from-cyan-500 to-cyan-600'
-    },
-    {
-      icon: HiUserGroup,
-      title: 'Verified Employers',
-      desc: 'DNS domain verification and OTP email confirmation for every employer.',
-      color: 'from-purple-500 to-purple-600'
-    },
-    {
-      icon: HiStar,
-      title: 'Interview Prep',
-      desc: 'AI-generated preparation topics and likely interview questions for each job.',
-      color: 'from-rose-500 to-rose-600'
-    }
-  ];
-
   return (
-    <div className="min-h-screen">
-      {/* Hero Section */}
-      <section className="relative px-4 py-24 md:py-32 overflow-hidden">
-        {/* Background effects */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-3xl" />
-        <div className="absolute top-40 right-0 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-purple-500/5 rounded-full blur-3xl" />
+    <div
+      className="min-h-screen pb-16"
+      style={{ background: 'var(--bg-base)' }}
+    >
+      <Navbar />
 
-        <div className="max-w-5xl mx-auto text-center relative">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-sm text-indigo-300 mb-6 animate-fade-in">
-            <HiShieldCheck className="w-4 h-4" />
-            AI-Powered Placement Security
-          </div>
+      {/* Hero */}
+      <section className="th-container pt-12 md:pt-20">
+        <div className="text-center max-w-4xl mx-auto animate-fade-in">
+          <span className="th-kicker mb-6 inline-flex">
+            <HiOutlineShieldCheck className="h-3.5 w-3.5" />
+            Multi-college placement portal
+          </span>
 
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight animate-slide-up">
-            Place Your Trust in
-            <br />
-            <span className="gradient-text">Verified Hiring</span>
+          <h1
+            className="text-4xl font-extrabold tracking-tight leading-tight md:text-6xl lg:text-7xl"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            Campus hiring that{' '}
+            <span
+              style={{
+                background: 'linear-gradient(135deg, #6366f1 0%, #06b6d4 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              actually works.
+            </span>
           </h1>
 
-          <p className="text-lg md:text-xl text-slate-400 mt-6 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '100ms' }}>
-            TrustHire uses a 3-layer AI engine to detect scam job postings, verify employers,
-            and ensure every opportunity is legitimate and safe.
+          <p className="mt-6 text-lg leading-8 text-ink-soft max-w-2xl mx-auto">
+            TrustHire combines verified employer workflows, CDC-controlled job visibility,
+            and AI scam detection into one production-grade placement platform.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center mt-10 animate-slide-up" style={{ animationDelay: '200ms' }}>
-            <Link
-              to="/register"
-              className="px-8 py-3.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-semibold rounded-xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all duration-300 flex items-center gap-2 justify-center"
-            >
-              Get Started Free <HiArrowRight className="w-4 h-4" />
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link className="th-btn-primary px-6 py-3 text-base" to="/register">
+              Get Started Free
+              <HiOutlineArrowRight className="h-4 w-4" />
             </Link>
-            <Link
-              to="/jobs"
-              className="px-8 py-3.5 glass text-slate-200 font-medium rounded-xl hover:bg-slate-700/50 transition-all duration-300"
-            >
+            <Link className="th-btn-secondary px-6 py-3 text-base" to="/jobs">
+              <HiOutlineBriefcase className="h-4 w-4" />
               Browse Jobs
             </Link>
           </div>
-
-          {/* Stats bar */}
-          <div className="grid grid-cols-3 gap-8 max-w-lg mx-auto mt-16 animate-slide-up" style={{ animationDelay: '300ms' }}>
-            {[
-              { value: '1,200+', label: 'Verified Jobs' },
-              { value: '340+', label: 'Companies' },
-              { value: '99.2%', label: 'Detection Rate' },
-            ].map(stat => (
-              <div key={stat.label}>
-                <p className="text-2xl md:text-3xl font-bold gradient-text">{stat.value}</p>
-                <p className="text-sm text-slate-400 mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
         </div>
-      </section>
 
-      {/* Features Section */}
-      <section className="px-4 py-20 relative">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-white">
-              Why <span className="gradient-text">TrustHire</span>?
-            </h2>
-            <p className="text-slate-400 mt-3 max-w-lg mx-auto">
-              Every feature is designed to protect students and ensure legitimate hiring.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature, i) => (
-              <div
-                key={feature.title}
-                className="glass rounded-2xl p-7 hover:bg-slate-700/30 transition-all duration-300 group animate-slide-up"
-                style={{ animationDelay: `${i * 100}ms` }}
+        {/* Stats row */}
+        <div className="mt-16 grid grid-cols-2 gap-4 md:grid-cols-4 animate-slide-up">
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl p-5 text-center"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              <p
+                className="text-3xl font-extrabold"
+                style={{
+                  background: 'linear-gradient(135deg, #6366f1, #06b6d4)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}
               >
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.color} flex items-center justify-center mb-5 group-hover:scale-110 transition-transform shadow-lg`}>
-                  <feature.icon className="w-6 h-6 text-white" />
-                </div>
-                <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{feature.desc}</p>
+                {stat.value}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-ink">{stat.label}</p>
+              <p className="text-xs text-ink-soft mt-0.5">{stat.sub}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Features grid */}
+      <section className="th-container mt-20">
+        <div className="text-center mb-12">
+          <span className="th-kicker">Platform capabilities</span>
+          <h2 className="mt-4 text-3xl font-bold text-ink md:text-4xl">
+            Everything a placement ecosystem needs
+          </h2>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((feature, i) => (
+            <article
+              key={feature.title}
+              className="rounded-2xl p-6 animate-fade-in"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-default)',
+                animationDelay: `${i * 60}ms`,
+                transition: 'border-color 0.2s, transform 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = feature.color + '44';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-default)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <div
+                className="flex h-11 w-11 items-center justify-center rounded-xl mb-4"
+                style={{ background: feature.bg }}
+              >
+                <feature.icon className="h-5 w-5" style={{ color: feature.color }} />
               </div>
-            ))}
-          </div>
+              <h3 className="text-base font-semibold text-ink">{feature.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-ink-soft">{feature.description}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="px-4 py-20">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-white">How It Works</h2>
-          </div>
-
-          <div className="space-y-8">
-            {[
-              { step: '01', title: 'Employer posts a job', desc: 'The job description is sent to our AI engine automatically.' },
-              { step: '02', title: 'AI analyzes for scams', desc: '3-layer detection: keyword scan, ML classifier, and LLM reasoning.' },
-              { step: '03', title: 'Community verifies', desc: 'Users vote on jobs. Weighted scores determine trust rating.' },
-              { step: '04', title: 'Students apply safely', desc: 'Only verified, trusted jobs reach students for application.' },
-            ].map((item, i) => (
-              <div key={item.step} className="flex gap-6 items-start animate-slide-up" style={{ animationDelay: `${i * 100}ms` }}>
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-lg shadow-indigo-500/20">
-                  {item.step}
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-white">{item.title}</h3>
-                  <p className="text-slate-400 mt-1">{item.desc}</p>
-                </div>
+      {/* Roles section */}
+      <section className="th-container mt-20">
+        <div
+          className="rounded-3xl p-8 md:p-12"
+          style={{
+            background: 'linear-gradient(145deg, var(--bg-card) 0%, rgba(99,102,241,0.05) 100%)',
+            border: '1px solid var(--border-brand)',
+          }}
+        >
+          <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
+            <div>
+              <span className="th-kicker">Role-aware platform</span>
+              <h2 className="mt-4 text-3xl font-bold text-ink md:text-4xl">
+                One platform, five distinct experiences
+              </h2>
+              <p className="mt-4 text-sm leading-7 text-ink-soft">
+                Every role gets a tailored workspace with the right tools, the right data,
+                and the right access controls — all enforced at the database level with Supabase RLS.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link className="th-btn-primary" to="/register">
+                  Create Account
+                  <HiOutlineArrowRight className="h-4 w-4" />
+                </Link>
+                <Link className="th-btn-secondary" to="/login">
+                  Sign In
+                </Link>
               </div>
-            ))}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {roles.map((r) => (
+                <div
+                  key={r.role}
+                  className="rounded-xl p-4"
+                  style={{
+                    background: `${r.color}0d`,
+                    border: `1px solid ${r.color}22`,
+                  }}
+                >
+                  <div
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold mb-3"
+                    style={{ background: `${r.color}22`, color: r.color }}
+                  >
+                    <HiOutlineUserGroup className="h-3 w-3" />
+                    {r.role}
+                  </div>
+                  <p className="text-sm text-ink-soft leading-5">{r.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="px-4 py-20">
-        <div className="max-w-3xl mx-auto text-center glass rounded-3xl p-12 animate-pulse-glow">
-          <h2 className="text-3xl font-bold text-white mb-4">Ready to hire — or be hired — with confidence?</h2>
-          <p className="text-slate-400 mb-8">
-            Join TrustHire today and experience AI-secured placement.
+      {/* CTA */}
+      <section className="th-container mt-16">
+        <div
+          className="rounded-3xl p-10 text-center"
+          style={{
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(6,182,212,0.15) 100%)',
+            border: '1px solid rgba(99,102,241,0.25)',
+          }}
+        >
+          <h2 className="text-3xl font-bold text-ink md:text-4xl">
+            Ready to demo TrustHire?
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-ink-soft max-w-xl mx-auto">
+            Create accounts, verify employers, post jobs, route campus drives, and inspect
+            analytics — all from one role-aware interface built for final-year project demos.
           </p>
-          <Link
-            to="/register"
-            className="inline-flex items-center gap-2 px-8 py-3.5 bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-semibold rounded-xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all"
-          >
-            Create Free Account <HiArrowRight className="w-4 h-4" />
-          </Link>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link className="th-btn-primary px-8 py-3 text-base" to="/register">
+              Start Building
+              <HiOutlineArrowRight className="h-4 w-4" />
+            </Link>
+            <Link className="th-btn-secondary px-8 py-3 text-base" to="/jobs">
+              View Live Jobs
+            </Link>
+          </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800 px-4 py-8">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between">
-          <div className="flex items-center gap-2">
-            <HiShieldCheck className="w-5 h-5 text-indigo-400" />
-            <span className="text-sm font-semibold gradient-text">TrustHire</span>
-          </div>
-          <p className="text-sm text-slate-500 mt-4 md:mt-0">
-            © {new Date().getFullYear()} TrustHire. Securing placements with AI.
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }

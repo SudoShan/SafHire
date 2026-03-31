@@ -370,20 +370,32 @@ Respond in JSON format:
         combined_score = round(min(100, max(0, combined_score)), 2)
 
         # Determine risk level
-        if combined_score >= 80:
-            risk_level = 'critical'
-        elif combined_score >= 60:
+        if combined_score >= 70:
             risk_level = 'high'
         elif combined_score >= 40:
             risk_level = 'medium'
         else:
             risk_level = 'low'
 
+        description_text = f"{title} {description}".lower()
+        match_quality = 'weak'
+        if requirements:
+            matched_terms = sum(1 for requirement in requirements if requirement.lower() in description_text)
+            coverage = matched_terms / max(1, len(requirements))
+            if coverage >= 0.75:
+                match_quality = 'strong'
+            elif coverage >= 0.35:
+                match_quality = 'moderate'
+        elif any(word in description_text for word in ['engineer', 'developer', 'analyst', 'manager']):
+            match_quality = 'moderate'
+
         return {
             'scam_score': combined_score,
             'risk_level': risk_level,
             'explanation': layer3.get('explanation', 'Analysis complete.'),
+            'extracted_red_flags': layer1['flags'],
             'keyword_flags': layer1['flags'],
+            'match_quality': match_quality,
             'layer_results': {
                 'keyword_detection': layer1,
                 'ml_classifier': layer2,

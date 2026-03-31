@@ -84,6 +84,9 @@ class ResumeParser:
             phone = self._extract_phone(text)
             education = self._extract_education(text)
             name = self._extract_name(text)
+            cgpa = self._extract_cgpa(text)
+            batch_year = self._extract_batch_year(text)
+            department = self._extract_department(text)
 
             return {
                 'skills': skills,
@@ -91,12 +94,30 @@ class ResumeParser:
                 'phone': phone,
                 'education': education,
                 'name': name,
+                'cgpa': cgpa,
+                'batch_year': batch_year,
+                'department': department,
                 'text_length': len(text),
                 'parsed': True
             }
         except Exception as e:
             logger.error(f"Parse error: {e}")
             return {'skills': [], 'parsed': False, 'error': str(e)}
+
+    def _extract_cgpa(self, text: str) -> str:
+        match = re.search(r'(?i)(?:cgpa|gpa|c\.g\.p\.a)[\s:-]*([0-9]\.[0-9]{1,2}|10\.0)', text)
+        return match.group(1) if match else ''
+
+    def _extract_batch_year(self, text: str) -> str:
+        matches = re.findall(r'\b(20[1-3][0-9])\b', text)
+        return max(matches) if matches else ''
+
+    def _extract_department(self, text: str) -> str:
+        depts = ['Computer Science', 'Information Technology', 'Software Engineering', 'Electrical', 'Mechanical', 'Civil', 'Electronics', 'Artificial Intelligence', 'Data Science', 'Business Administration']
+        for dept in depts:
+            if re.search(r'\b' + re.escape(dept) + r'\b', text, re.IGNORECASE):
+                return dept
+        return ''
 
     def _extract_pdf(self, content: bytes) -> str:
         """Extract text from PDF"""

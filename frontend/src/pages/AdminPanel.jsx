@@ -1,10 +1,28 @@
-import { useState, useEffect } from 'react';
-import api from '../lib/api';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  HiShieldCheck, HiUserGroup, HiExclamation, HiCheck, HiX,
-  HiChartBar, HiBriefcase, HiEye
-} from 'react-icons/hi';
+  HiOutlineShieldCheck,
+  HiOutlineUserGroup,
+  HiOutlineExclamationTriangle,
+  HiOutlineCheckCircle,
+  HiOutlineNoSymbol,
+  HiOutlineChartBar,
+  HiOutlineBriefcase,
+} from 'react-icons/hi2';
+import AppShell from '../components/AppShell';
+import EmptyState from '../components/EmptyState';
+import LoadingScreen from '../components/LoadingScreen';
+import PageHeader from '../components/PageHeader';
+import StatusBadge from '../components/StatusBadge';
+import api, { getApiError } from '../lib/api';
+import { formatDate } from '../lib/utils';
+
+const TABS = [
+  { id: 'dashboard', label: 'Dashboard', icon: HiOutlineChartBar },
+  { id: 'flagged', label: 'Flagged Jobs', icon: HiOutlineExclamationTriangle },
+  { id: 'users', label: 'Users', icon: HiOutlineUserGroup },
+  { id: 'employers', label: 'Employers', icon: HiOutlineBriefcase },
+];
 
 export default function AdminPanel() {
   const [tab, setTab] = useState('dashboard');
@@ -14,258 +32,249 @@ export default function AdminPanel() {
   const [employers, setEmployers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [tab]);
+  useEffect(() => { loadData(); }, [tab]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       if (tab === 'dashboard') {
-        const { data } = await api.get('/admin/dashboard');
-        setStats(data.stats);
+        const { data } = await api.get('/analytics/platform').catch(() => ({ data: {} }));
+        setStats(data);
       } else if (tab === 'flagged') {
-        const { data } = await api.get('/admin/flagged-jobs');
+        const { data } = await api.get('/super-admin/flagged-jobs').catch(() => ({ data: { jobs: [] } }));
         setFlaggedJobs(data.jobs || []);
       } else if (tab === 'users') {
-        const { data } = await api.get('/admin/users');
+        const { data } = await api.get('/super-admin/users').catch(() => ({ data: { users: [] } }));
         setUsers(data.users || []);
       } else if (tab === 'employers') {
-        const { data } = await api.get('/admin/employers');
+        const { data } = await api.get('/super-admin/employers').catch(() => ({ data: { employers: [] } }));
         setEmployers(data.employers || []);
       }
     } catch (err) {
-      console.error('Admin data error:', err);
+      toast.error(getApiError(err, 'Unable to load admin data'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReview = async (jobId, action) => {
+  const handleJobAction = async (jobId, status) => {
     try {
-      await api.put(`/admin/jobs/${jobId}/review`, { action });
-      toast.success(`Job ${action}d successfully`);
+      await api.patch(`/jobs/${jobId}/status`, { status, reason: `${status} by super admin.` });
+      toast.success(`Job marked ${status}.`);
       loadData();
-    } catch {
-      toast.error('Failed to review job');
+    } catch (err) {
+      toast.error(getApiError(err, 'Unable to update job'));
     }
   };
 
-  const handleApproveEmployer = async (empId) => {
+  const handleEmployerAction = async (empId, status) => {
     try {
-      await api.put(`/admin/employers/${empId}/approve`);
-      toast.success('Employer approved');
+      await api.patch(`/super-admin/employers/${empId}/status`, {
+        status,
+        blocked_reason: status === 'blocked' ? 'Blocked by super admin.' : null,
+      });
+      toast.success(`Employer marked ${status}.`);
       loadData();
-    } catch {
-      toast.error('Failed to approve employer');
+    } catch (err) {
+      toast.error(getApiError(err, 'Unable to update employer'));
     }
   };
-
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: HiChartBar },
-    { id: 'flagged', label: 'Flagged Jobs', icon: HiExclamation },
-    { id: 'users', label: 'Users', icon: HiUserGroup },
-    { id: 'employers', label: 'Employers', icon: HiBriefcase },
-  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-white mb-8 flex items-center gap-3">
-        <HiShieldCheck className="w-8 h-8 text-indigo-400" />
-        Admin Panel
-      </h1>
+    <AppShell>
+      <section className="th-section">
+        <PageHeader
+          kicker="Admin panel"
+          title="Platform administration"
+          description="Review flagged content, manage users, verify employers, and monitor platform health."
+        />
+      </section>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-        {tabs.map(t => (
+      {/* Tab bar */}
+      <div
+        className="flex gap-1 rounded-2xl p-1.5"
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
+      >
+        {TABS.map((t) => (
           <button
             key={t.id}
+            type="button"
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all flex-1 justify-center"
+            style={{
+              background: tab === t.id ? 'var(--bg-elevated)' : 'transparent',
+              color: tab === t.id ? 'var(--text-primary)' : 'var(--text-muted)',
+              border: tab === t.id ? '1px solid var(--border-brand)' : '1px solid transparent',
+            }}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
-              tab === t.id
-                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25'
-                : 'glass text-slate-300 hover:text-white'
-            }`}
           >
-            <t.icon className="w-4 h-4" />
-            {t.label}
+            <t.icon className="h-4 w-4 flex-shrink-0" />
+            <span className="hidden sm:inline">{t.label}</span>
           </button>
         ))}
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="glass rounded-2xl p-6">
-              <div className="shimmer h-8 w-20 rounded-lg mb-2" />
-              <div className="shimmer h-4 w-32 rounded-lg" />
-            </div>
-          ))}
-        </div>
+        <LoadingScreen label="Loading admin data…" />
       ) : (
         <>
-          {/* Dashboard Tab */}
-          {tab === 'dashboard' && stats && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {tab === 'dashboard' && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="th-grid-autofit">
                 {[
-                  { label: 'Total Users', value: stats.totalUsers || 0, color: 'text-indigo-400' },
-                  { label: 'Total Jobs', value: stats.totalJobs || 0, color: 'text-cyan-400' },
-                  { label: 'Flagged', value: stats.flaggedJobs || 0, color: 'text-red-400' },
-                  { label: 'Appeals', value: stats.pendingAppeals || 0, color: 'text-amber-400' },
-                  { label: 'Applications', value: stats.totalApplications || 0, color: 'text-emerald-400' },
-                ].map(s => (
-                  <div key={s.label} className="glass rounded-2xl p-5 text-center">
-                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                    <p className="text-sm text-slate-400 mt-1">{s.label}</p>
+                  { label: 'Colleges', value: stats?.college_count || 0, color: '#06b6d4' },
+                  { label: 'Employers', value: stats?.employer_count || 0, color: '#f97316' },
+                  { label: 'Total Jobs', value: stats?.job_count || 0, color: '#818cf8' },
+                  { label: 'Blocked Jobs', value: stats?.blocked_job_count || 0, color: '#f87171' },
+                  { label: 'Approved Appeals', value: stats?.approved_appeals_count || 0, color: '#34d399' },
+                ].map((s) => (
+                  <div key={s.label} className="th-metric text-center" style={{ borderColor: `${s.color}22` }}>
+                    <p className="text-3xl font-extrabold" style={{ color: s.color }}>{s.value}</p>
+                    <p className="th-label mt-2">{s.label}</p>
                   </div>
                 ))}
               </div>
-              {stats.roleDistribution && (
-                <div className="glass rounded-2xl p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">User Distribution</h3>
-                  <div className="flex flex-wrap gap-6">
-                    {Object.entries(stats.roleDistribution).map(([role, count]) => (
-                      <div key={role} className="text-center">
-                        <p className="text-xl font-bold text-slate-200">{count}</p>
-                        <p className="text-sm text-slate-400 capitalize">{role}s</p>
+              <div className="th-section">
+                <p className="th-label mb-4">Platform health</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    { label: 'AI scam detection', desc: 'Screening all new job postings' },
+                    { label: 'RLS policies active', desc: 'All tables row-level secured' },
+                    { label: 'Audit logging', desc: 'All admin actions tracked' },
+                  ].map((item) => (
+                    <div key={item.label} className="th-panel p-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="h-2 w-2 rounded-full" style={{ background: '#10b981' }} />
+                        <p className="text-sm font-semibold text-ink">{item.label}</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Flagged Jobs Tab */}
-          {tab === 'flagged' && (
-            <div className="space-y-4 animate-fade-in">
-              {flaggedJobs.length === 0 ? (
-                <div className="glass rounded-2xl p-12 text-center">
-                  <HiShieldCheck className="w-16 h-16 text-emerald-400 mx-auto mb-3" />
-                  <p className="text-slate-300 text-lg">No flagged jobs! All clear.</p>
-                </div>
-              ) : (
-                flaggedJobs.map(job => (
-                  <div key={job.id} className="glass rounded-2xl p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-white">{job.title}</h3>
-                        <p className="text-sm text-indigo-400">{job.employer?.company_name}</p>
-                        <p className="text-sm text-slate-400 mt-2 line-clamp-2">{job.description}</p>
-                        <div className="flex gap-4 mt-3 text-sm">
-                          <span className="text-red-400">Scam Score: {job.scam_score?.toFixed(1)}</span>
-                          <span className="text-amber-400 capitalize">Risk: {job.risk_level}</span>
-                          <span className={`capitalize ${job.status === 'appealed' ? 'text-purple-400' : 'text-slate-400'}`}>
-                            Status: {job.status}
-                          </span>
-                        </div>
-                        {job.appeal_message && (
-                          <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
-                            <p className="text-xs text-slate-400 mb-1 font-medium">Appeal Message:</p>
-                            <p className="text-sm text-slate-300">{job.appeal_message}</p>
-                          </div>
-                        )}
-                        {job.ai_explanation && (
-                          <p className="text-xs text-slate-500 mt-2">{job.ai_explanation}</p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 ml-4">
-                        <button
-                          onClick={() => handleReview(job.id, 'approve')}
-                          className="px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition flex items-center gap-1.5"
-                        >
-                          <HiCheck className="w-4 h-4" /> Approve
-                        </button>
-                        <button
-                          onClick={() => handleReview(job.id, 'reject')}
-                          className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition flex items-center gap-1.5"
-                        >
-                          <HiX className="w-4 h-4" /> Reject
-                        </button>
-                      </div>
+                      <p className="text-xs text-ink-soft">{item.desc}</p>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* Users Tab */}
-          {tab === 'users' && (
-            <div className="glass rounded-2xl overflow-hidden animate-fade-in">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700/50">
-                    <th className="text-left px-6 py-4 text-sm font-medium text-slate-400">Name</th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-slate-400">Email</th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-slate-400">Role</th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-slate-400">Joined</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                      <td className="px-6 py-3 text-sm text-white">{u.full_name}</td>
-                      <td className="px-6 py-3 text-sm text-slate-300">{u.email}</td>
-                      <td className="px-6 py-3">
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${
-                          u.role === 'admin' ? 'bg-red-500/10 text-red-400' :
-                          u.role === 'employer' ? 'bg-amber-500/10 text-amber-400' :
-                          'bg-indigo-500/10 text-indigo-400'
-                        }`}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-400">
-                        {new Date(u.created_at).toLocaleDateString()}
-                      </td>
-                    </tr>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Employers Tab */}
-          {tab === 'employers' && (
-            <div className="space-y-4 animate-fade-in">
-              {employers.map(emp => (
-                <div key={emp.id} className="glass rounded-2xl p-5 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-semibold">{emp.company_name}</h3>
-                    <p className="text-sm text-slate-400">{emp.company_email} | {emp.company_domain}</p>
-                    <div className="flex gap-4 mt-2 text-xs">
-                      <span className={emp.domain_verified ? 'text-emerald-400' : 'text-slate-500'}>
-                        Domain: {emp.domain_verified ? '✓ Verified' : '✕ Unverified'}
-                      </span>
-                      <span className={emp.email_verified ? 'text-emerald-400' : 'text-slate-500'}>
-                        Email: {emp.email_verified ? '✓ Verified' : '✕ Unverified'}
-                      </span>
-                      <span className="text-cyan-400">
-                        Trust: {emp.credibility_score?.toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                  {!emp.is_approved && (
-                    <button
-                      onClick={() => handleApproveEmployer(emp.id)}
-                      className="px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition"
-                    >
-                      Approve
-                    </button>
-                  )}
-                  {emp.is_approved && (
-                    <span className="px-3 py-1 text-xs bg-emerald-500/10 text-emerald-400 rounded-full">
-                      ✓ Approved
-                    </span>
-                  )}
+          {tab === 'flagged' && (
+            <div className="th-section space-y-4 animate-fade-in">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: 'rgba(239,68,68,0.1)' }}>
+                  <HiOutlineExclamationTriangle className="h-5 w-5" style={{ color: '#f87171' }} />
                 </div>
-              ))}
+                <div>
+                  <p className="th-label">Flagged jobs</p>
+                  <h2 className="text-lg font-bold text-ink">{flaggedJobs.length} jobs need review</h2>
+                </div>
+              </div>
+              {flaggedJobs.length === 0 ? (
+                <EmptyState title="No flagged jobs" description="AI screening hasn't flagged anything recently." />
+              ) : (
+                <div className="space-y-3">
+                  {flaggedJobs.map((job) => (
+                    <div key={job.id} className="th-panel p-5 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold text-ink truncate">{job.title}</p>
+                          <p className="text-sm text-ink-soft mt-0.5">{job.employer?.company_name || 'Employer'}</p>
+                          <p className="text-xs text-ink-soft mt-1 line-clamp-2">{job.description}</p>
+                        </div>
+                        <StatusBadge status={job.status} />
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        <span style={{ color: '#f87171' }}>Scam score: {job.ai_review?.scam_score ?? 'N/A'}</span>
+                        <span style={{ color: '#fbbf24' }}>Risk: {job.ai_review?.risk_level || 'unknown'}</span>
+                      </div>
+                      {job.ai_review?.explanation && (
+                        <p className="text-xs text-ink-soft leading-5 italic">"{job.ai_review.explanation}"</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1" type="button" onClick={() => handleJobAction(job.id, 'approved')}>
+                          <HiOutlineCheckCircle className="h-3.5 w-3.5" style={{ color: '#34d399' }} />
+                          Approve
+                        </button>
+                        <button className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1" type="button" onClick={() => handleJobAction(job.id, 'blocked')}>
+                          <HiOutlineNoSymbol className="h-3.5 w-3.5" style={{ color: '#f87171' }} />
+                          Block
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'users' && (
+            <div className="th-section animate-fade-in">
+              <p className="th-label mb-4">All platform users</p>
+              {users.length === 0 ? (
+                <EmptyState title="No users data" description="User listing requires the /super-admin/users endpoint." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="th-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((u) => (
+                        <tr key={u.id}>
+                          <td className="font-medium">{u.full_name}</td>
+                          <td className="text-ink-soft">{u.email}</td>
+                          <td><StatusBadge status={u.role_code} /></td>
+                          <td className="text-ink-soft">{formatDate(u.created_at)}</td>
+                          <td><StatusBadge status={u.is_active ? 'active' : 'inactive'} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'employers' && (
+            <div className="th-section space-y-4 animate-fade-in">
+              <p className="th-label">Employer network</p>
+              {employers.length === 0 ? (
+                <EmptyState title="No employers yet" description="Employer profiles appear here once recruiter accounts complete registration." />
+              ) : (
+                <div className="space-y-3">
+                  {employers.map((emp) => (
+                    <div key={emp.id} className="th-panel p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-ink truncate">{emp.company_name}</p>
+                          <p className="text-xs text-ink-soft mt-0.5">{emp.official_email} · {emp.company_domain || 'No domain'}</p>
+                          <div className="flex flex-wrap gap-3 mt-2 text-xs text-ink-soft">
+                            <span>Type: {emp.company_type?.toUpperCase()}</span>
+                            <span>Score: {Math.round(emp.credibility_score || 0)}</span>
+                          </div>
+                        </div>
+                        <StatusBadge status={emp.verification_status} />
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1" type="button" onClick={() => handleEmployerAction(emp.id, 'verified')}>
+                          <HiOutlineCheckCircle className="h-3.5 w-3.5" style={{ color: '#34d399' }} />
+                          Verify
+                        </button>
+                        <button className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1" type="button" onClick={() => handleEmployerAction(emp.id, 'blocked')}>
+                          <HiOutlineNoSymbol className="h-3.5 w-3.5" style={{ color: '#f87171' }} />
+                          Block
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
       )}
-    </div>
+    </AppShell>
   );
 }

@@ -1,183 +1,188 @@
-import { useState, useEffect } from 'react';
-import api from '../lib/api';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { HiOfficeBuilding, HiCheckCircle, HiXCircle, HiAcademicCap, HiShieldCheck } from 'react-icons/hi';
+import { Link } from 'react-router-dom';
+import {
+  HiOutlineArrowRight,
+  HiOutlineCheckBadge,
+  HiOutlineNoSymbol,
+  HiOutlineExclamationTriangle,
+} from 'react-icons/hi2';
+import AppShell from '../components/AppShell';
+import EmptyState from '../components/EmptyState';
+import LoadingScreen from '../components/LoadingScreen';
+import PageHeader from '../components/PageHeader';
+import StatCard from '../components/StatCard';
+import StatusBadge from '../components/StatusBadge';
+import api, { getApiError } from '../lib/api';
 
 export default function SuperAdminDashboard() {
-  const [activeTab, setActiveTab] = useState('colleges');
-  const [colleges, setColleges] = useState([]);
-  const [employers, setEmployers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newCollege, setNewCollege] = useState({ name: '', domain: '', location: '' });
+  const [analytics, setAnalytics] = useState(null);
+  const [flaggedJobs, setFlaggedJobs] = useState([]);
+  const [employers, setEmployers] = useState([]);
 
   useEffect(() => {
-    fetchData();
+    async function load() {
+      try {
+        const [analyticsRes, flaggedRes, employersRes] = await Promise.all([
+          api.get('/analytics/platform').catch(() => ({ data: null })),
+          api.get('/super-admin/flagged-jobs').catch(() => ({ data: { jobs: [] } })),
+          api.get('/super-admin/employers').catch(() => ({ data: { employers: [] } })),
+        ]);
+        setAnalytics(analyticsRes.data);
+        setFlaggedJobs(flaggedRes.data.jobs || []);
+        setEmployers(employersRes.data.employers || []);
+      } catch (error) {
+        toast.error(getApiError(error, 'Unable to load platform dashboard'));
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
   }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const updateEmployerStatus = async (employerId, status) => {
     try {
-      const [colRes, empRes] = await Promise.all([
-        api.get('/super-admin/colleges'),
-        api.get('/super-admin/employers')
-      ]);
-      setColleges(colRes.data.colleges || []);
-      setEmployers(empRes.data.employers || []);
-    } catch (err) {
-      toast.error('Failed to load Super Admin data');
-    } finally {
-      setLoading(false);
+      await api.patch(`/super-admin/employers/${employerId}/status`, {
+        status,
+        blocked_reason: status === 'blocked' ? 'Blocked by super admin during trust review.' : null,
+      });
+      toast.success(`Employer marked ${status}.`);
+      const res = await api.get('/super-admin/employers');
+      setEmployers(res.data.employers || []);
+    } catch (error) {
+      toast.error(getApiError(error, 'Unable to update employer status'));
     }
   };
 
-  const handleCreateCollege = async (e) => {
-    e.preventDefault();
-    try {
-      const { data } = await api.post('/super-admin/colleges', newCollege);
-      setColleges([data.college, ...colleges]);
-      setNewCollege({ name: '', domain: '', location: '' });
-      toast.success(data.message);
-    } catch (err) {
-      toast.error('Failed to create college');
-    }
-  };
-
-  const handleVerifyEmployer = async (id, status) => {
-    try {
-      await api.put(`/super-admin/employers/${id}/verify`, { global_status: status });
-      setEmployers(employers.map(e => e.id === id ? { ...e, global_status: status } : e));
-      toast.success(`Employer globally ${status}`);
-    } catch (err) {
-      toast.error('Failed to update employer status');
-    }
-  };
-
-  if (loading) return <div className="text-center py-20 text-slate-400">Loading Global Platform Data...</div>;
+  if (loading) return <AppShell><LoadingScreen label="Loading platform controls…" /></AppShell>;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <HiShieldCheck className="w-8 h-8 text-red-500" />
-          Super Admin Global Control
-        </h1>
-        <p className="text-slate-400 mt-2">Manage all registered colleges, verify enterprise employers, and oversee global platform security.</p>
+    <AppShell>
+      <section className="th-section">
+        <PageHeader
+          kicker="Super admin"
+          title="Platform governance"
+          description="Approve colleges, verify or block employers, and monitor fraud patterns across the TrustHire network."
+          actions={
+            <>
+              <Link className="th-btn-secondary" to="/super-admin/colleges">
+                College Setup
+              </Link>
+              <Link className="th-btn-primary" to="/analytics">
+                Analytics
+                <HiOutlineArrowRight className="h-4 w-4" />
+              </Link>
+            </>
+          }
+        />
+      </section>
+
+      <div className="th-grid-autofit stagger">
+        <StatCard label="Colleges" value={analytics?.college_count || 0} helper="Approved on the network" tone="teal" />
+        <StatCard label="Employers" value={analytics?.employer_count || 0} helper="Global company entities" tone="rust" />
+        <StatCard label="Total Jobs" value={analytics?.job_count || 0} helper="Public + campus hiring" tone="slate" />
+        <StatCard label="Blocked Jobs" value={analytics?.blocked_job_count || 0} helper="Stopped by trust controls" tone="rose" />
       </div>
 
-      <div className="flex gap-4 mb-8">
-        <button 
-          onClick={() => setActiveTab('colleges')}
-          className={`px-6 py-2.5 rounded-xl font-medium transition ${activeTab === 'colleges' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-        >
-          Manage Colleges
-        </button>
-        <button 
-          onClick={() => setActiveTab('employers')}
-          className={`px-6 py-2.5 rounded-xl font-medium transition ${activeTab === 'employers' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-        >
-          Global Employer Verification
-        </button>
-      </div>
-
-      {activeTab === 'colleges' && (
-        <div className="space-y-6">
-          <form onSubmit={handleCreateCollege} className="glass p-6 rounded-2xl border border-slate-700 flex flex-wrap md:flex-nowrap items-end gap-4 animate-fade-in">
-            <div className="flex-1">
-              <label className="text-sm text-slate-400 mb-1 block">College Name</label>
-              <input required value={newCollege.name} onChange={e => setNewCollege({...newCollege, name: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white" placeholder="Stanford University" />
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        {/* Flagged jobs */}
+        <div className="th-section space-y-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl flex-shrink-0"
+              style={{ background: 'rgba(239,68,68,0.1)' }}
+            >
+              <HiOutlineExclamationTriangle className="h-5 w-5" style={{ color: '#f87171' }} />
             </div>
-            <div className="flex-1">
-              <label className="text-sm text-slate-400 mb-1 block">Domain</label>
-              <input required value={newCollege.domain} onChange={e => setNewCollege({...newCollege, domain: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white" placeholder="stanford.edu" />
+            <div>
+              <p className="th-label">Flagged jobs</p>
+              <h2 className="text-lg font-bold text-ink">Needs platform attention</h2>
             </div>
-            <div className="flex-1">
-              <label className="text-sm text-slate-400 mb-1 block">Location</label>
-              <input value={newCollege.location} onChange={e => setNewCollege({...newCollege, location: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white" placeholder="California, USA" />
-            </div>
-            <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium px-6 py-2.5 rounded-lg transition h-[42px]">
-              Add College
-            </button>
-          </form>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {colleges.map(c => (
-              <div key={c.id} className="glass p-5 rounded-2xl border border-slate-700 animate-slide-up">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center">
-                    <HiAcademicCap className="w-6 h-6" />
-                  </div>
-                  <h3 className="font-bold text-lg text-white truncate">{c.name}</h3>
-                </div>
-                <p className="text-sm text-slate-400 mb-1">Domain: <span className="text-slate-300">{c.domain}</span></p>
-                <p className="text-sm text-slate-400">Status: <span className="text-emerald-400 font-medium">{c.status}</span></p>
-              </div>
-            ))}
           </div>
-        </div>
-      )}
 
-      {activeTab === 'employers' && (
-        <div className="space-y-4">
-          <div className="glass rounded-2xl overflow-hidden animate-fade-in">
-            <table className="w-full text-left">
-              <thead className="bg-slate-800/80 text-slate-400 text-sm">
-                <tr>
-                  <th className="p-4 font-medium">Company</th>
-                  <th className="p-4 font-medium">Domain & Verification</th>
-                  <th className="p-4 font-medium">Global Status</th>
-                  <th className="p-4 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {employers.map(emp => (
-                  <tr key={emp.id} className="hover:bg-slate-800/30 transition">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <HiOfficeBuilding className="w-6 h-6 text-slate-500" />
-                        <div>
-                          <p className="font-semibold text-white">{emp.company_name}</p>
-                          <p className="text-xs text-slate-400 capitalize">{emp.company_type || 'Unknown'}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-sm text-slate-300">{emp.company_domain}</p>
-                      <div className="flex gap-1 mt-1">
-                        {emp.verifications?.map(v => (
-                          <span key={v.id} className={`text-[10px] px-2 py-0.5 rounded-full ${v.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                            {v.verification_type.replace('_', ' ')}: {v.status}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${
-                        emp.global_status === 'verified' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-                        emp.global_status === 'blocked' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
-                        'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                      }`}>
-                        {emp.global_status.toUpperCase()}
+          <div className="space-y-3">
+            {flaggedJobs.length === 0 ? (
+              <EmptyState
+                title="No flagged jobs right now"
+                description="Restricted and blocked jobs will appear here when AI screening or moderation flags them."
+              />
+            ) : (
+              flaggedJobs.slice(0, 6).map((job) => (
+                <div
+                  key={job.id}
+                  className="th-panel flex items-start justify-between gap-3 p-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-ink truncate">{job.title}</p>
+                    <p className="mt-0.5 text-xs text-ink-soft">
+                      {job.employer?.company_name || 'Employer'} · Scam score{' '}
+                      <span style={{ color: job.ai_review?.scam_score > 60 ? '#f87171' : '#fbbf24' }}>
+                        {job.ai_review?.scam_score ?? 'N/A'}
                       </span>
-                    </td>
-                    <td className="p-4 text-right">
-                      {emp.global_status !== 'verified' && (
-                        <button onClick={() => handleVerifyEmployer(emp.id, 'verified')} className="text-emerald-400 hover:text-emerald-300 font-medium text-sm mr-4 transition">
-                          Approve
-                        </button>
-                      )}
-                      {emp.global_status !== 'blocked' && (
-                        <button onClick={() => handleVerifyEmployer(emp.id, 'blocked')} className="text-red-400 hover:text-red-300 font-medium text-sm transition">
-                          Block
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </p>
+                  </div>
+                  <StatusBadge status={job.status} />
+                </div>
+              ))
+            )}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Employer network */}
+        <div className="th-section space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="th-label">Employer network</p>
+              <h2 className="text-lg font-bold text-ink">Recent employer entities</h2>
+            </div>
+            <Link className="th-btn-secondary text-xs" to="/super-admin/colleges">
+              Provision CDC
+            </Link>
+          </div>
+
+          <div className="space-y-3">
+            {employers.length === 0 ? (
+              <EmptyState
+                title="No employers yet"
+                description="Employer profiles appear here once recruiter accounts complete verification."
+              />
+            ) : (
+              employers.slice(0, 5).map((employer) => (
+                <div key={employer.id} className="th-panel p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-ink truncate">{employer.company_name}</p>
+                      <p className="mt-0.5 text-xs text-ink-soft">
+                        Score: {Math.round(employer.credibility_score || 0)} · {employer.company_type?.toUpperCase()}
+                      </p>
+                    </div>
+                    <StatusBadge status={employer.verification_status} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                      type="button"
+                      onClick={() => updateEmployerStatus(employer.id, 'verified')}
+                    >
+                      <HiOutlineCheckBadge className="h-3.5 w-3.5" style={{ color: '#34d399' }} />
+                      Verify
+                    </button>
+                    <button
+                      className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                      type="button"
+                      onClick={() => updateEmployerStatus(employer.id, 'blocked')}
+                    >
+                      <HiOutlineNoSymbol className="h-3.5 w-3.5" style={{ color: '#f87171' }} />
+                      Block
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </AppShell>
   );
 }
