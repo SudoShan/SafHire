@@ -178,6 +178,27 @@ async function uploadResume(userId, file) {
     throw new AppError(500, 'Failed to update student resume profile');
   }
 
+  // Update name and email in users table if parsed
+  if (extracted.name || extracted.email) {
+    const userUpdatePayload = {};
+    if (extracted.name) {
+      userUpdatePayload.full_name = extracted.name;
+    }
+    if (extracted.email) {
+      userUpdatePayload.email = extracted.email;
+    }
+
+    const { error: userError } = await serviceClient
+      .from('users')
+      .update(userUpdatePayload)
+      .eq('id', userId);
+
+    if (userError) {
+      console.error('Failed to update user profile with extracted data:', userError);
+      // Not throwing AppError here so we don't fail the whole resume upload
+    }
+  }
+
   await serviceClient.from('student_documents').insert({
     student_id: student.id,
     document_type: 'resume',

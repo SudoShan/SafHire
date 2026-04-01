@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import AppShell from '../components/AppShell';
 import LoadingScreen from '../components/LoadingScreen';
 import PageHeader from '../components/PageHeader';
+import { useAuth } from '../context/AuthContext';
 import api, { getApiError } from '../lib/api';
 
 function csvToArray(value) {
@@ -13,6 +14,7 @@ function csvToArray(value) {
 }
 
 export default function StudentProfile() {
+  const { user, refreshUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -131,6 +133,7 @@ export default function StudentProfile() {
         department: data.profile.department || current.department,
       }));
       toast.success('Resume uploaded and parsed.');
+      await refreshUser();
     } catch (error) {
       toast.error(getApiError(error, 'Unable to upload resume'));
     } finally {
@@ -245,8 +248,8 @@ export default function StudentProfile() {
           <div className="th-section">
             <p className="th-label">AI extraction summary</p>
             <div className="mt-4 space-y-3 text-sm text-ink-soft">
-              <p>Name: {resumeInsights?.name || 'Not extracted yet'}</p>
-              <p>Email: {resumeInsights?.email || 'Not extracted yet'}</p>
+              <p>Name: {resumeInsights?.name || user?.full_name || 'Not extracted yet'}</p>
+              <p>Email: {resumeInsights?.email || user?.email || 'Not extracted yet'}</p>
               <p>Department: {resumeInsights?.department || profile?.department || 'Not extracted yet'}</p>
               <p>Batch year: {resumeInsights?.batch_year || profile?.graduation_year || 'Not extracted yet'}</p>
             </div>
