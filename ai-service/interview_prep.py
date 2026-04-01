@@ -4,8 +4,14 @@ Generates preparation topics, interview questions, and discussion summaries
 """
 
 import os
+import re
+import json
 import logging
+import requests
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -207,82 +213,180 @@ SKILL_QUESTIONS = {
 
 class InterviewPrepGenerator:
     def __init__(self):
-        self.openai_key = os.getenv('OPENAI_API_KEY', '')
+        self.groq_key = os.getenv('GROQ_KEY_ONE', '')
+
+    # ------------------------------------------------------------------ #
+    #  Groq helper                                                         #
+    # ------------------------------------------------------------------ #
+
+    def _to_list(self, value) -> list:
+        """Coerce a value to a list — handles None, string, and proper lists."""
+        if isinstance(value, list):
+            return value
+        if not value or str(value).strip().lower() in ('none', 'null', ''):
+            return []
+        # LLM returned a string — split on commas that are NOT inside parentheses/brackets
+        import re as _re
+        parts = _re.split(r',\s*(?![^(\[]*[)\]])', str(value))
+        return [p.strip() for p in parts if p.strip()]
+
+    def _to_str(self, value, default: str = '') -> str:
+        """Coerce a value to a string, returning default for None/null."""
+        if value is None or str(value).strip().lower() in ('none', 'null'):
+            return default
+        return str(value).strip() or default
+
+    def _call_groq(self, system_prompt: str, user_prompt: str, max_tokens: int = 1000) -> str:
+        """Send a prompt to Groq and return the raw text response."""
+        if not self.groq_key:
+            raise EnvironmentError("GROQ_KEY_ONE is not set in environment variables.")
+
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.groq_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                "temperature": 0.7,
+                "max_tokens": max_tokens,
+            },
+            timeout=30,
+        )
+        if not response.ok:
+            logger.error(f"Groq API error {response.status_code}: {response.text}")
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+    def _parse_json_response(self, raw: str) -> dict:
+        """Strip markdown fences if present and parse JSON."""
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        return json.loads(raw.strip())
+
+    # ------------------------------------------------------------------ #
+    #  Public entry points (signatures unchanged)                          #
+    # ------------------------------------------------------------------ #
 
     def generate(self, job_title: str, job_description: str = '',
                  required_skills: List[str] = [], student_skills: List[str] = None) -> dict:
         """Generate interview preparation materials"""
         student_skills = student_skills or []
-        
-        # Try LLM-based generation first
-        if self.openai_key and self.openai_key != 'your-openai-api-key':
+
+        if self.groq_key:
             try:
                 return self._generate_with_llm(job_title, job_description, required_skills, student_skills)
             except Exception as e:
                 logger.warning(f"LLM generation failed: {e}")
 
-        # Fallback to rule-based generation
         return self._generate_rule_based(job_title, job_description, required_skills, student_skills)
+
+    def summarize_discussion(self, messages: str) -> dict:
+        """Summarize a discussion thread"""
+        if self.groq_key:
+            try:
+                return self._summarize_with_llm(messages)
+            except Exception as e:
+                logger.warning(f"LLM summarization failed: {e}")
+
+        return self._summarize_rule_based(messages)
+
+    # ------------------------------------------------------------------ #
+    #  LLM-based implementations (Groq)                                    #
+    # ------------------------------------------------------------------ #
 
     def _generate_with_llm(self, job_title: str, job_description: str,
                            required_skills: List[str], student_skills: List[str]) -> dict:
-        """Generate with LLM"""
-        from openai import OpenAI
-        client = OpenAI(api_key=self.openai_key)
+        """Generate interview prep materials using Groq."""
+        system_prompt = "You are a career coach helping candidates prepare for job interviews. Return ONLY valid JSON — no markdown fences, no explanation."
 
-        prompt = f"""Generate interview preparation materials for this job:
+        user_prompt = f"""Generate interview preparation materials for this job:
 
 Job Title: {job_title}
 Description: {job_description}
 Required Skills: {', '.join(required_skills)}
 Student Skills: {', '.join(student_skills)}
 
-Provide:
-1. 5-7 roadmap steps
-2. 8-10 important topics
-3. 8-10 likely interview questions
-4. 4-5 resume tips
-5. a skill gap analysis with matched and missing skills
+Return a JSON object with exactly these keys:
+{{
+  "roadmap": ["step1", "step2", "..."],
+  "important_topics": ["topic1", "topic2", "..."],
+  "likely_questions": ["q1", "q2", "..."],
+  "resume_tips": ["tip1", "tip2", "..."],
+  "skill_gap_analysis": {{
+    "matched_skills": ["skill1"],
+    "missing_skills": ["skill2"],
+    "summary": "one sentence summary"
+  }}
+}}
 
-Format as JSON:
-{{"roadmap": ["step1", "step2"], "important_topics": ["topic1", "topic2"], "likely_questions": ["q1", "q2"], "resume_tips": ["tip1"], "skill_gap_analysis": {{"matched_skills": ["React"], "missing_skills": ["Docker"], "summary": "..."}}}}"""
+Provide 5-7 roadmap steps, 8-10 important topics, 8-10 likely questions, 4-5 resume tips."""
 
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a career coach helping candidates prepare for job interviews."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
-
-        import json
-        content = response.choices[0].message.content
+        raw = self._call_groq(system_prompt, user_prompt, max_tokens=1000)
         try:
-            result = json.loads(content)
+            result = self._parse_json_response(raw)
             result['generated_by'] = 'llm'
             return result
         except json.JSONDecodeError:
             return {
                 'roadmap': ['Review the full job brief and identify the core evaluation themes.'],
-                'important_topics': [content],
+                'important_topics': [raw],
                 'likely_questions': [],
                 'resume_tips': [],
                 'skill_gap_analysis': {
                     'matched_skills': student_skills,
-                    'missing_skills': [skill for skill in required_skills if skill not in student_skills],
+                    'missing_skills': [s for s in required_skills if s not in student_skills],
                     'summary': 'Generated from raw LLM output.',
                 },
                 'generated_by': 'llm_raw',
             }
 
+    def _summarize_with_llm(self, messages: str) -> dict:
+        """Summarize a discussion thread using Groq."""
+        system_prompt = (
+            "Summarize this job discussion thread concisely. "
+            "Return ONLY a valid JSON object. No markdown, no prose, no explanation. "
+            "Every value must match its type exactly:\n"
+            "- summary: string\n"
+            "- common_questions: JSON array of strings, e.g. [\"Q1\", \"Q2\"]\n"
+            "- interview_difficulty: one of the strings 'low', 'medium', or 'high'\n"
+            "- preparation_topics: JSON array of strings, e.g. [\"Topic A\", \"Topic B\"]\n"
+            "Never use a plain string where an array is required."
+        )
+
+        raw = self._call_groq(system_prompt, messages, max_tokens=500)
+        try:
+            result = self._parse_json_response(raw)
+            return {
+                'summary':              self._to_str(result.get('summary'), ''),
+                'common_questions':     self._to_list(result.get('common_questions')),
+                'interview_difficulty': self._to_str(result.get('interview_difficulty'), 'medium'),
+                'preparation_topics':   self._to_list(result.get('preparation_topics')),
+            }
+        except json.JSONDecodeError:
+            return {
+                'summary': raw,
+                'common_questions': [],
+                'interview_difficulty': 'medium',
+                'preparation_topics': [],
+            }
+
+    # ------------------------------------------------------------------ #
+    #  Rule-based fallbacks (unchanged)                                    #
+    # ------------------------------------------------------------------ #
+
     def _generate_rule_based(self, job_title: str, job_description: str,
                              required_skills: List[str], student_skills: List[str]) -> dict:
         """Rule-based preparation generation"""
         title_lower = job_title.lower()
-        
-        # Determine domain
+
         domain = 'general'
         domain_keywords = {
             'software': ['software', 'engineer', 'developer', 'programmer', 'sde', 'full stack', 'fullstack'],
@@ -297,25 +401,20 @@ Format as JSON:
                 domain = d
                 break
 
-        # Get base topics and questions
         prep = PREP_DATABASE.get(domain, PREP_DATABASE['general'])
         topics = list(prep['topics'])
         questions = list(prep['questions'])
 
-        # Add skill-specific questions
         for skill in required_skills:
             skill_lower = skill.lower()
             if skill_lower in SKILL_QUESTIONS:
                 questions.extend(SKILL_QUESTIONS[skill_lower])
-            # Add skill-specific topic
             topics.append(f'{skill} - Best Practices & Advanced Concepts')
 
-        # Add general questions
         if domain != 'general':
             general = PREP_DATABASE['general']
             questions.extend(general['questions'][:5])
 
-        # Deduplicate
         topics = list(dict.fromkeys(topics))[:12]
         questions = list(dict.fromkeys(questions))[:15]
 
@@ -359,49 +458,11 @@ Format as JSON:
             'generated_by': 'rule_based'
         }
 
-    def summarize_discussion(self, messages: str) -> dict:
-        """Summarize a discussion thread"""
-        if self.openai_key and self.openai_key != 'your-openai-api-key':
-            try:
-                return self._summarize_with_llm(messages)
-            except Exception as e:
-                logger.warning(f"LLM summarization failed: {e}")
-
-        return self._summarize_rule_based(messages)
-
-    def _summarize_with_llm(self, messages: str) -> dict:
-        """Summarize with LLM"""
-        from openai import OpenAI
-        client = OpenAI(api_key=self.openai_key)
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Summarize this job discussion thread concisely. Return JSON with summary, common_questions, interview_difficulty, and preparation_topics."},
-                {"role": "user", "content": messages}
-            ],
-            temperature=0.5,
-            max_tokens=500
-        )
-        import json
-
-        content = response.choices[0].message.content
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            return {
-                'summary': content,
-                'common_questions': [],
-                'interview_difficulty': 'medium',
-                'preparation_topics': [],
-            }
-
     def _summarize_rule_based(self, messages: str) -> dict:
         """Basic rule-based summarization"""
         lines = messages.strip().split('\n')
         total = len(lines)
-        
-        # Count unique participants
+
         participants = set()
         for line in lines:
             if ':' in line:
@@ -409,7 +470,6 @@ Format as JSON:
                 if name:
                     participants.add(name)
 
-        # Extract key topics (most frequent non-stop words)
         stop_words = {'the', 'is', 'at', 'which', 'on', 'a', 'an', 'and', 'or', 'but',
                       'in', 'to', 'for', 'of', 'with', 'by', 'this', 'that', 'it',
                       'i', 'you', 'we', 'they', 'he', 'she', 'my', 'your', 'our',

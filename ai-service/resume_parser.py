@@ -4,120 +4,138 @@ Extracts skills and info from PDF/DOCX resumes
 """
 
 import re
+import json
 import logging
+import os
+import requests
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()  # Loads variables from .env into os.environ
 
 logger = logging.getLogger(__name__)
-
-# Comprehensive skills database
-SKILLS_DATABASE = {
-    # Programming Languages
-    'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'ruby', 'go',
-    'golang', 'rust', 'swift', 'kotlin', 'php', 'scala', 'r', 'matlab',
-    'perl', 'dart', 'lua', 'haskell', 'elixir', 'clojure',
-    
-    # Web Frontend
-    'html', 'css', 'react', 'reactjs', 'react.js', 'angular', 'angularjs',
-    'vue', 'vuejs', 'vue.js', 'svelte', 'next.js', 'nextjs', 'nuxt.js',
-    'gatsby', 'tailwind', 'tailwindcss', 'bootstrap', 'sass', 'scss',
-    'less', 'jquery', 'webpack', 'vite', 'redux', 'mobx',
-    
-    # Web Backend
-    'node.js', 'nodejs', 'express', 'expressjs', 'django', 'flask',
-    'fastapi', 'spring', 'spring boot', 'rails', 'ruby on rails',
-    'asp.net', '.net', 'laravel', 'nestjs', 'nest.js', 'koa',
-    
-    # Databases
-    'sql', 'mysql', 'postgresql', 'postgres', 'mongodb', 'redis',
-    'elasticsearch', 'cassandra', 'dynamodb', 'firebase', 'supabase',
-    'sqlite', 'oracle', 'mssql', 'neo4j', 'graphql', 'prisma',
-    
-    # Cloud & DevOps
-    'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes',
-    'k8s', 'terraform', 'ansible', 'jenkins', 'ci/cd', 'github actions',
-    'gitlab ci', 'circleci', 'nginx', 'apache', 'linux', 'bash',
-    
-    # Data Science & ML
-    'machine learning', 'deep learning', 'tensorflow', 'pytorch',
-    'keras', 'scikit-learn', 'sklearn', 'pandas', 'numpy', 'scipy',
-    'matplotlib', 'seaborn', 'jupyter', 'nlp', 'natural language processing',
-    'computer vision', 'opencv', 'data analysis', 'data visualization',
-    'tableau', 'power bi', 'spark', 'hadoop', 'airflow',
-    
-    # Mobile
-    'android', 'ios', 'react native', 'flutter', 'xamarin',
-    'swiftui', 'jetpack compose',
-    
-    # Tools & Practices
-    'git', 'github', 'gitlab', 'bitbucket', 'jira', 'confluence',
-    'agile', 'scrum', 'kanban', 'tdd', 'rest api', 'restful',
-    'microservices', 'api design', 'system design', 'oop',
-    'design patterns', 'data structures', 'algorithms',
-    
-    # Other
-    'figma', 'photoshop', 'illustrator', 'sketch',
-    'ui/ux', 'ux design', 'ui design', 'wireframing',
-    'seo', 'google analytics', 'a/b testing',
-    'blockchain', 'web3', 'solidity',
-    'cybersecurity', 'penetration testing', 'ethical hacking',
-}
 
 
 class ResumeParser:
     def __init__(self):
-        pass
+        self._groq_cache: dict = {}
+
+    # ------------------------------------------------------------------ #
+    #  Groq helpers                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _call_groq(self, prompt: str) -> str:
+        """Send a prompt to Groq and return the raw text response."""
+        api_key = os.getenv("GROQ_KEY_ONE")
+        if not api_key:
+            raise EnvironmentError("GROQ_KEY_ONE is not set in environment variables.")
+
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+            },
+            timeout=30,
+        )
+        if not response.ok:
+            logger.error(f"Groq API error {response.status_code}: {response.text}")
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+    def _parse_all_with_groq(self, text: str) -> dict:
+        """
+        Single Groq call that extracts every field we need.
+        Result is cached on self._groq_cache for the lifetime of this parse run.
+        """
+        # Truncate to ~4000 chars to stay well within token limits
+        snippet = text[:4000]
+
+        prompt = f"""You are a resume-parsing assistant. Extract information from the resume text below and return ONLY a valid JSON object — no markdown fences, no explanation, nothing else.
+
+Resume text:
+\"\"\"
+{snippet}
+\"\"\"
+
+Return a JSON object with exactly these keys:
+{{
+  "name":        "<full candidate name. For eg: even if name is given like vi s h a l s, change it to Vishal S properly., empty string if not found>",
+  "email":       "<email address, empty string if not found>",
+  "phone":       "<phone number as a string, empty string if not found>",
+  "cgpa":        "<CGPA or GPA value e.g. '8.5', empty string if not found>",
+  "batch_year":  "<graduation / batch year e.g. '2027' if degree is from 2023-2027, empty string if not found>",
+  "department":  "<department or field of study e.g. 'Computer Science', empty string if not found>",
+  "skills":      ["list", "of", "technical", "skills"],
+  "education":   ["list", "of", "education", "qualifications", "e.g. B.Tech, M.Tech"]
+}}"""
+
+        try:
+            raw = self._call_groq(prompt).strip()
+
+            # Strip accidental markdown code fences if the model adds them
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+
+            return json.loads(raw)
+
+        except Exception as e:
+            logger.error(f"Groq parse error: {e}")
+            return {}
+
+    # ------------------------------------------------------------------ #
+    #  Public entry point                                                  #
+    # ------------------------------------------------------------------ #
 
     def parse(self, content: bytes, filename: str) -> dict:
         """Parse resume file and extract information"""
         try:
-            ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+            ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
 
-            if ext == 'pdf':
+            if ext == "pdf":
                 text = self._extract_pdf(content)
-            elif ext in ('doc', 'docx'):
+            elif ext in ("doc", "docx"):
                 text = self._extract_docx(content)
             else:
-                text = content.decode('utf-8', errors='ignore')
+                text = content.decode("utf-8", errors="ignore")
 
-            skills = self._extract_skills(text)
-            email = self._extract_email(text)
-            phone = self._extract_phone(text)
-            education = self._extract_education(text)
-            name = self._extract_name(text)
-            cgpa = self._extract_cgpa(text)
+            # One Groq call for all fields; individual helpers read from the cache
+            self._groq_cache = self._parse_all_with_groq(text)
+
+            skills     = self._extract_skills(text)
+            email      = self._extract_email(text)
+            phone      = self._extract_phone(text)
+            education  = self._extract_education(text)
+            name       = self._extract_name(text)
+            cgpa       = self._extract_cgpa(text)
             batch_year = self._extract_batch_year(text)
             department = self._extract_department(text)
 
             return {
-                'skills': skills,
-                'email': email,
-                'phone': phone,
-                'education': education,
-                'name': name,
-                'cgpa': cgpa,
-                'batch_year': batch_year,
-                'department': department,
-                'text_length': len(text),
-                'parsed': True
+                "skills":      skills,
+                "email":       email,
+                "phone":       phone,
+                "education":   education,
+                "name":        name,
+                "cgpa":        cgpa,
+                "batch_year":  batch_year,
+                "department":  department,
+                "text_length": len(text),
+                "parsed":      True,
             }
         except Exception as e:
             logger.error(f"Parse error: {e}")
-            return {'skills': [], 'parsed': False, 'error': str(e)}
+            return {"skills": [], "parsed": False, "error": str(e)}
 
-    def _extract_cgpa(self, text: str) -> str:
-        match = re.search(r'(?i)(?:cgpa|gpa|c\.g\.p\.a)[\s:-]*([0-9]\.[0-9]{1,2}|10\.0)', text)
-        return match.group(1) if match else ''
-
-    def _extract_batch_year(self, text: str) -> str:
-        matches = re.findall(r'\b(20[1-3][0-9])\b', text)
-        return max(matches) if matches else ''
-
-    def _extract_department(self, text: str) -> str:
-        depts = ['Computer Science', 'Information Technology', 'Software Engineering', 'Electrical', 'Mechanical', 'Civil', 'Electronics', 'Artificial Intelligence', 'Data Science', 'Business Administration']
-        for dept in depts:
-            if re.search(r'\b' + re.escape(dept) + r'\b', text, re.IGNORECASE):
-                return dept
-        return ''
+    # ------------------------------------------------------------------ #
+    #  File extractors (unchanged)                                         #
+    # ------------------------------------------------------------------ #
 
     def _extract_pdf(self, content: bytes) -> str:
         """Extract text from PDF"""
@@ -125,13 +143,13 @@ class ResumeParser:
             from PyPDF2 import PdfReader
             import io
             reader = PdfReader(io.BytesIO(content))
-            text = ''
+            text = ""
             for page in reader.pages:
-                text += page.extract_text() or ''
+                text += page.extract_text() or ""
             return text
         except Exception as e:
             logger.error(f"PDF extraction error: {e}")
-            return ''
+            return ""
 
     def _extract_docx(self, content: bytes) -> str:
         """Extract text from DOCX"""
@@ -139,66 +157,49 @@ class ResumeParser:
             from docx import Document
             import io
             doc = Document(io.BytesIO(content))
-            return '\n'.join([para.text for para in doc.paragraphs])
+            return "\n".join([para.text for para in doc.paragraphs])
         except Exception as e:
             logger.error(f"DOCX extraction error: {e}")
-            return ''
+            return ""
+
+    # ------------------------------------------------------------------ #
+    #  Field extractors — now powered by the cached Groq response         #
+    # ------------------------------------------------------------------ #
+
+    def _extract_cgpa(self, text: str) -> str:
+        """Extract CGPA/GPA from resume text."""
+        return self._groq_cache.get("cgpa", "") or ""
+
+    def _extract_batch_year(self, text: str) -> str:
+        """Extract graduation/batch year from resume text."""
+        return self._groq_cache.get("batch_year", "") or ""
+
+    def _extract_department(self, text: str) -> str:
+        """Extract department/field of study from resume text."""
+        return self._groq_cache.get("department", "") or ""
 
     def _extract_skills(self, text: str) -> List[str]:
-        """Extract skills from resume text"""
-        text_lower = text.lower()
-        found_skills = set()
-
-        for skill in SKILLS_DATABASE:
-            # Use word boundary matching for short skills
-            if len(skill) <= 2:
-                pattern = r'\b' + re.escape(skill) + r'\b'
-                if re.search(pattern, text_lower):
-                    found_skills.add(skill.title() if len(skill) > 2 else skill.upper())
-            elif skill in text_lower:
-                # Proper casing
-                if skill in ('aws', 'gcp', 'sql', 'css', 'html', 'oop', 'tdd', 'nlp', 'seo'):
-                    found_skills.add(skill.upper())
-                elif '.' in skill or skill.startswith(('react', 'node', 'vue', 'next', 'nest')):
-                    found_skills.add(skill)
-                else:
-                    found_skills.add(skill.title())
-
-        return sorted(list(found_skills))
+        """Extract skills from resume text."""
+        skills = self._groq_cache.get("skills", [])
+        if not isinstance(skills, list):
+            return []
+        return sorted(str(s) for s in skills if s)
 
     def _extract_email(self, text: str) -> str:
-        """Extract email from text"""
-        match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', text)
-        return match.group(0) if match else ''
+        """Extract email from resume text."""
+        return self._groq_cache.get("email", "") or ""
 
     def _extract_phone(self, text: str) -> str:
-        """Extract phone number from text"""
-        match = re.search(r'[\+]?[\d\s\-\(\)]{10,15}', text)
-        return match.group(0).strip() if match else ''
+        """Extract phone number from resume text."""
+        return self._groq_cache.get("phone", "") or ""
 
     def _extract_education(self, text: str) -> List[str]:
-        """Extract education details"""
-        education = []
-        patterns = [
-            r'(?i)(b\.?tech|b\.?e\.?|bachelor)',
-            r'(?i)(m\.?tech|m\.?e\.?|master|mba|m\.?s\.?)',
-            r'(?i)(ph\.?d|doctorate)',
-            r'(?i)(diploma|certificate)',
-            r'(?i)(b\.?sc|m\.?sc|b\.?com|m\.?com|b\.?a\.?|m\.?a\.?)',
-        ]
-        for pattern in patterns:
-            matches = re.findall(pattern, text)
-            education.extend(matches)
-        return list(set(education))
+        """Extract education qualifications from resume text."""
+        education = self._groq_cache.get("education", [])
+        if not isinstance(education, list):
+            return []
+        return [str(e) for e in education if e]
 
     def _extract_name(self, text: str) -> str:
-        """Extract name (heuristic: first line of resume)"""
-        lines = text.strip().split('\n')
-        for line in lines[:5]:
-            line = line.strip()
-            if line and len(line) < 50 and not re.search(r'[@\d]', line):
-                # Likely a name
-                words = line.split()
-                if 1 <= len(words) <= 4:
-                    return line
-        return ''
+        """Extract candidate name from resume text."""
+        return self._groq_cache.get("name", "") or ""
