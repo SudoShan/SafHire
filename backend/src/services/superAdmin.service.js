@@ -1,7 +1,18 @@
+/**
+ * superAdmin.service.js
+ * All services available to the super_admin role.
+ * Includes the Feedback Learning System via finalizeJobOutcome().
+ */
+
 const AppError = require('../helpers/AppError');
 const env = require('../config/env');
 const { serviceClient } = require('../config/supabase');
 const { writeAuditLog } = require('../helpers/audit');
+const { recordVoteOutcome } = require('../helpers/userStats');
+
+// ------------------------------------------------------------------
+// Colleges
+// ------------------------------------------------------------------
 
 async function listColleges() {
   const { data, error } = await serviceClient
@@ -82,6 +93,10 @@ async function updateCollegeStatus(userId, collegeId, status, reqMeta = {}) {
   return data;
 }
 
+// ------------------------------------------------------------------
+// CDC Admins
+// ------------------------------------------------------------------
+
 async function provisionCdcAdmin(userId, payload, reqMeta = {}) {
   const { data: authData, error: authError } = await serviceClient.auth.admin.createUser({
     email: payload.email,
@@ -144,6 +159,10 @@ async function provisionCdcAdmin(userId, payload, reqMeta = {}) {
   };
 }
 
+// ------------------------------------------------------------------
+// Employers
+// ------------------------------------------------------------------
+
 async function listEmployers() {
   const { data, error } = await serviceClient
     .from('employers')
@@ -192,6 +211,10 @@ async function updateEmployerStatus(userId, employerId, status, blockedReason, r
   return data;
 }
 
+// ------------------------------------------------------------------
+// Jobs
+// ------------------------------------------------------------------
+
 async function listFlaggedJobs() {
   const { data, error } = await serviceClient
     .from('jobs')
@@ -210,6 +233,10 @@ async function listFlaggedJobs() {
   return data || [];
 }
 
+// ------------------------------------------------------------------
+// Users
+// ------------------------------------------------------------------
+
 async function listUsers() {
   const { data, error } = await serviceClient
     .from('users')
@@ -223,8 +250,138 @@ async function listUsers() {
   return data || [];
 }
 
+// ------------------------------------------------------------------
+// Feedback Learning System: Finalize Job Outcome
+// ------------------------------------------------------------------
+
+/**
+ * Finalize the outcome of a job (confirmed_genuine | confirmed_scam).
+ * This triggers the feedback learning loop:
+ *   1. Stamps the outcome on the job record.
+ *   2. Fetches all votes cast on the job.
+ *   3. For each voter, determines if their vote was "correct" and updates
+ *      their user_vote_stats (accuracy + weight_multiplier).
+ *   4. Sends a notification to the employer.
+ *   5. Writes an audit log entry.
+ *
+ * "Correct" vote logic:
+ *   - outcome = confirmed_scam   → downvote/report_scam is CORRECT, upvote is WRONG
+ *   - outcome = confirmed_genuine → upvote is CORRECT, downvote/report_scam is WRONG
+ *
+ * @param {string} adminUserId - the super admin performing the action
+ * @param {string} jobId
+ * @param {'confirmed_genuine'|'confirmed_scam'} outcome
+ * @param {Object} reqMeta
+ */
+async function finalizeJobOutcome(adminUserId, jobId, outcome, reqMeta = {}) {
+  const VALID_OUTCOMES = ['confirmed_genuine', 'confirmed_scam'];
+  if (!VALID_OUTCOMES.includes(outcome)) {
+    throw new AppError(400, `outcome must be one of: ${VALID_OUTCOMES.join(', ')}`);
+  }
+
+  // 1. Fetch job and verify it exists
+  const { data: job, error: jobError } = await serviceClient
+    .from('jobs')
+    .select('id, employer_id, title, outcome')
+    .eq('id', jobId)
+    .single();
+
+  if (jobError || !job) {
+    throw new AppError(404, 'Job not found');
+  }
+
+  if (job.outcome) {
+    throw new AppError(409, `Job outcome is already finalized as '${job.outcome}'`);
+  }
+
+  // 2. Stamp the outcome on the job and set final status
+  const finalStatus = outcome === 'confirmed_scam' ? 'blocked' : 'approved';
+  const statusReason = outcome === 'confirmed_scam'
+    ? 'Confirmed as fraudulent by admin. Job blocked.'
+    : 'Confirmed as genuine by admin. Job approved.';
+
+  const { data: updatedJob, error: updateError } = await serviceClient
+    .from('jobs')
+    .update({ outcome, status: finalStatus, status_reason: statusReason })
+    .eq('id', jobId)
+    .select('*')
+    .single();
+
+  if (updateError || !updatedJob) {
+    throw new AppError(500, 'Failed to finalize job outcome');
+  }
+
+  // 3. Fetch all votes on this job
+  const { data: votes } = await serviceClient
+    .from('votes')
+    .select('user_id, vote_type')
+    .eq('job_id', jobId);
+
+  // 4. Update each voter's accuracy stats (in parallel; use allSettled so one failure doesn't abort others)
+  if (votes && votes.length > 0) {
+    await Promise.allSettled(
+      votes.map((vote) => {
+        const wasCorrect = outcome === 'confirmed_scam'
+          ? (vote.vote_type === 'downvote' || vote.vote_type === 'report_scam')
+          : (vote.vote_type === 'upvote');
+
+        return recordVoteOutcome(vote.user_id, wasCorrect);
+      }),
+    );
+  }
+
+  // 5. Notify the employer
+  const { data: employer } = await serviceClient
+    .from('employers')
+    .select('user_id')
+    .eq('id', job.employer_id)
+    .maybeSingle();
+
+  if (employer?.user_id) {
+    const notifTitle = outcome === 'confirmed_scam'
+      ? 'Your job posting has been removed'
+      : 'Your job posting has been verified as genuine';
+
+    const notifMessage = outcome === 'confirmed_scam'
+      ? `The job "${job.title}" was confirmed as fraudulent and has been permanently removed.`
+      : `The job "${job.title}" was reviewed and confirmed as a genuine posting.`;
+
+    await serviceClient.from('notifications').insert({
+      user_id: employer.user_id,
+      type: `job_outcome_${outcome}`,
+      title: notifTitle,
+      message: notifMessage,
+      data: { job_id: jobId, outcome },
+    });
+  }
+
+  // 6. Audit log
+  await writeAuditLog({
+    actorId: adminUserId,
+    action: 'job_outcome_finalized',
+    entityType: 'job',
+    entityId: jobId,
+    metadata: {
+      outcome,
+      final_status: finalStatus,
+      voters_updated: (votes || []).length,
+    },
+    ipAddress: reqMeta.ipAddress,
+  });
+
+  return {
+    ...updatedJob,
+    voters_updated: (votes || []).length,
+  };
+}
+
+// ------------------------------------------------------------------
+// Exports
+// ------------------------------------------------------------------
+
 module.exports = {
   createCollege,
+  finalizeJobOutcome,
   listColleges,
   listEmployers,
   listFlaggedJobs,

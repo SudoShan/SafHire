@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import Analytics from './pages/Analytics';
 import Appeals from './pages/Appeals';
+import CampusDrives from './pages/CampusDrives';
 import CDCDashboard from './pages/CDCDashboard';
 import CDCWorkspace from './pages/CDCWorkspace';
 import CollegeSetup from './pages/CollegeSetup';
@@ -21,6 +22,7 @@ import Notifications from './pages/Notifications';
 import PostJob from './pages/PostJob';
 import Register from './pages/Register';
 import StudentDashboard from './pages/StudentDashboard';
+import StudentInvitations from './pages/StudentInvitations';
 import StudentProfile from './pages/StudentProfile';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 
@@ -87,6 +89,22 @@ export default function App() {
             element={
               <ProtectedRoute roles={['student', 'alumni']}>
                 <MyApplications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/invitations"
+            element={
+              <ProtectedRoute roles={['student', 'alumni']}>
+                <StudentInvitations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/campus-drives"
+            element={
+              <ProtectedRoute roles={['student', 'alumni']}>
+                <CampusDrives />
               </ProtectedRoute>
             }
           />

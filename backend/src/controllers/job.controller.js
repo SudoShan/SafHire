@@ -1,4 +1,5 @@
 const jobService = require('../services/job.service');
+const uploadToCloudinary = require('../helpers/cloudinaryUpload');
 
 async function listJobs(_req, res) {
   const jobs = await jobService.listPublicJobs();
@@ -18,7 +19,18 @@ async function createJob(req, res) {
 }
 
 async function apply(req, res) {
-  const application = await jobService.applyToJob(req.params.jobId, req.user.id, req.validated, {
+  let resumeUrl = null;
+  if (req.file) {
+    try {
+      const result = await uploadToCloudinary(req.file.buffer, 'safhire/resumes');
+      resumeUrl = result.secure_url;
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to upload resume to Cloudinary' });
+    }
+  }
+
+  const payload = { ...req.validated, resumeUrl };
+  const application = await jobService.applyToJob(req.params.jobId, req.user.id, payload, {
     ipAddress: req.ip,
   });
   res.status(201).json({ application, message: 'Application submitted' });

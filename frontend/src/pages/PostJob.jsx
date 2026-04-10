@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { HiOutlineSparkles, HiOutlineInformationCircle } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlineInformationCircle, HiOutlineBuildingOffice2, HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import AppShell from '../components/AppShell';
 import PageHeader from '../components/PageHeader';
 import api, { getApiError } from '../lib/api';
@@ -41,7 +41,45 @@ export default function PostJob() {
     max_backlogs: '',
     departments: '',
     graduation_years: '',
+    target_college_ids: [],
+    require_resume: false,
   });
+
+  const [timeline, setTimeline] = useState(['Application']);
+  const [colleges, setColleges] = useState([]);
+  const [loadingColleges, setLoadingColleges] = useState(false);
+
+  useEffect(() => {
+    async function fetchColleges() {
+      setLoadingColleges(true);
+      try {
+        const response = await api.get('/employers/colleges');
+        console.debug('[PostJob] College Access Data:', response.data);
+
+        // Handle both possible structures: { colleges: [] } or just []
+        const rawList = Array.isArray(response.data) ? response.data : (response.data.colleges || []);
+
+        // Filter for colleges where the employer has an 'approved' access record
+        const approved = rawList.filter(item => item.access?.status === 'approved');
+
+        setColleges(approved);
+      } catch (error) {
+        console.error('Failed to fetch colleges', error);
+      } finally {
+        setLoadingColleges(false);
+      }
+    }
+    fetchColleges();
+  }, []);
+
+  const toggleCollege = (id) => {
+    setForm(prev => {
+      const ids = prev.target_college_ids.includes(id)
+        ? prev.target_college_ids.filter(i => i !== id)
+        : [...prev.target_college_ids, id];
+      return { ...prev, target_college_ids: ids };
+    });
+  };
 
   const f = (key) => ({
     value: form[key],
@@ -70,6 +108,9 @@ export default function PostJob() {
           departments: splitCsv(form.departments),
           graduation_years: splitCsv(form.graduation_years).map(Number),
         },
+        target_college_ids: form.distribution_mode === 'campus_cdc' ? form.target_college_ids : [],
+        requireResume: form.require_resume,
+        timeline: timeline,
       };
       const { data } = await api.post('/jobs', payload);
       toast.success(`Job created — status: ${data.job.status}`);
@@ -152,6 +193,16 @@ export default function PostJob() {
             <span className="th-label">Application deadline</span>
             <input className="th-input" type="date" {...f('application_deadline')} />
           </label>
+
+          <label className="flex items-center gap-3 p-3 rounded-lg border border-ink-faint">
+            <input
+              type="checkbox"
+              className="th-checkbox"
+              checked={form.require_resume}
+              onChange={(e) => setForm({ ...form, require_resume: e.target.checked })}
+            />
+            <span className="font-semibold text-ink text-sm">Require Resume Upload</span>
+          </label>
         </div>
 
         {/* Right: distribution + eligibility */}
@@ -169,6 +220,54 @@ export default function PostJob() {
                 <option value="campus_cdc">Campus CDC</option>
               </select>
             </label>
+
+            {form.distribution_mode === 'campus_cdc' && (
+              <div className="space-y-3 p-4 rounded-xl border border-ink-faint bg-ink-faint/5">
+                <p className="th-label flex items-center gap-2">
+                  <HiOutlineBuildingOffice2 className="h-4 w-4" />
+                  Target Colleges
+                </p>
+                {loadingColleges ? (
+                  <p className="text-xs text-ink-soft animate-pulse">Loading approved colleges...</p>
+                ) : colleges.length === 0 ? (
+                  <div className="space-y-3 p-2 text-center border border-dashed border-red-200 rounded-xl bg-red-50/50">
+                    <p className="text-xs text-red-500 font-medium">No approved college access found.</p>
+                    <p className="text-[10px] text-ink-soft px-2">
+                      You need to request access first so CDCs can assign your job to students.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/employer/profile')}
+                      className="th-btn-ghost text-[10px] py-1 px-3 text-red-600 hover:bg-red-50"
+                    >
+                      Request access in profile
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                    {colleges.map(college => (
+                      <label key={college.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-ink-faint cursor-pointer transition-colors">
+                        <input
+                          type="checkbox"
+                          className="th-checkbox"
+                          checked={form.target_college_ids.includes(college.id)}
+                          onChange={() => toggleCollege(college.id)}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink truncate">{college.name}</p>
+                          <p className="text-[10px] text-ink-soft truncate">{college.location || college.code}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {form.target_college_ids.length > 0 && (
+                  <p className="text-xs text-indigo-500 font-medium">
+                    Selected {form.target_college_ids.length} campus{form.target_college_ids.length > 1 ? 'es' : ''}
+                  </p>
+                )}
+              </div>
+            )}
 
             <label className="block space-y-1.5">
               <span className="th-label">Required skills</span>
@@ -201,6 +300,45 @@ export default function PostJob() {
               <span className="th-label">Graduation years</span>
               <input className="th-input" placeholder="2025, 2026" {...f('graduation_years')} />
             </label>
+
+            <div className="space-y-2 pt-4 border-t border-ink-faint">
+              <p className="th-label">Job Timeline Phases</p>
+              <div className="space-y-2">
+                {timeline.map((step, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-ink-soft w-4">{idx + 1}.</span>
+                    <input
+                      className="th-input flex-1 py-1 px-2 text-sm"
+                      value={step}
+                      onChange={(e) => {
+                        const newT = [...timeline];
+                        newT[idx] = e.target.value;
+                        setTimeline(newT);
+                      }}
+                      placeholder="e.g. Assessment Phase"
+                      required
+                    />
+                    {timeline.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setTimeline(timeline.filter((_, i) => i !== idx))}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
+                      >
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="th-btn-secondary text-xs w-full py-1.5"
+                onClick={() => setTimeline([...timeline, 'New Phase'])}
+              >
+                <HiOutlinePlus className="w-3.5 h-3.5" />
+                Add Phase
+              </button>
+            </div>
           </div>
 
           {/* Info card */}

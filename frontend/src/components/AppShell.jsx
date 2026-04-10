@@ -5,6 +5,7 @@ import {
   HiOutlineBell,
   HiOutlineBriefcase,
   HiOutlineBuildingLibrary,
+  HiOutlineBuildingOffice2,
   HiOutlineChartBar,
   HiOutlineClipboardDocumentCheck,
   HiOutlineDocumentText,
@@ -12,6 +13,7 @@ import {
   HiOutlineShieldCheck,
   HiOutlineUserCircle,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineAcademicCap,
   HiXMark,
 } from 'react-icons/hi2';
 import { useAuth } from '../context/AuthContext';
@@ -26,7 +28,9 @@ function getNavigation(role) {
   if (role === 'student' || role === 'alumni') {
     return [
       { to: '/student', label: 'Dashboard', icon: HiOutlineHome },
+      { to: '/student/campus-drives', label: 'Campus Drives', icon: HiOutlineBuildingOffice2 },
       { to: '/student/profile', label: 'My Profile', icon: HiOutlineUserCircle },
+      { to: '/student/invitations', label: 'Invitations', icon: HiOutlineAcademicCap },
       { to: '/student/applications', label: 'Applications', icon: HiOutlineDocumentText },
       { to: '/analytics', label: 'Analytics', icon: HiOutlineChartBar },
       ...common,

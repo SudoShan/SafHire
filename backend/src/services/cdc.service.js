@@ -363,16 +363,346 @@ async function assignJob(userId, jobId, payload, reqMeta = {}) {
   return data;
 }
 
+async function listBatchStudents(userId, batchId) {
+  const cdc = await getContext(userId);
+  
+  // Verify batch belongs to this college
+  const { data: batch } = await serviceClient
+    .from('batches')
+    .select('id')
+    .eq('id', batchId)
+    .eq('college_id', cdc.college_id)
+    .single();
+
+  if (!batch) throw new AppError(404, 'Batch not found in your college');
+
+  const { data, error } = await serviceClient
+    .from('students')
+    .select(`
+      *,
+      user:users(id, full_name, email, college_email)
+    `)
+    .eq('batch_id', batchId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new AppError(500, 'Failed to load batch students');
+  return data || [];
+}
+
+async function listBatchJobs(userId, batchId) {
+  const cdc = await getContext(userId);
+
+  // Verify batch belongs to this college
+  const { data: batch } = await serviceClient
+    .from('batches')
+    .select('id, name, department, graduation_year')
+    .eq('id', batchId)
+    .eq('college_id', cdc.college_id)
+    .single();
+
+  if (!batch) throw new AppError(404, 'Batch not found in your college');
+
+  const { data, error } = await serviceClient
+    .from('job_assignments')
+    .select(`
+      *,
+      job:jobs(
+        *,
+        employer:employers(id, company_name, verification_status, credibility_score, company_logo_url),
+        ai_review:job_ai_reviews(*)
+      )
+    `)
+    .eq('college_id', cdc.college_id)
+    .or(`batch_id.eq.${batchId},and(batch_id.is.null,group_id.is.null)`)
+    .in('visibility_status', ['approved', 'restricted', 'pending'])
+    .order('created_at', { ascending: false });
+
+  if (error) throw new AppError(500, 'Failed to load batch jobs');
+  return { batch, jobs: data || [] };
+}
+
 module.exports = {
   assignJob,
   createBatch,
   createGroup,
   getDashboard,
+  inviteStudent,
   listAssignableJobs,
+  listBatchJobs,
+  listBatchStudents,
   listBatches,
   listEmployerRequests,
   listGroups,
+  listIncomingJobRequests,
+  listInvitations,
   listStudents,
   refreshGroupMembers,
   resolveEmployerRequest,
+  reviewJobRequest,
+  revokeInvitation,
 };
+
+// ─── Student Invitations ────────────────────────────────────────────────────
+
+async function inviteStudent(userId, payload, reqMeta = {}) {
+  const cdc = await getContext(userId);
+
+  // Validate batch belongs to this college (if provided)
+  if (payload.batchId) {
+    const { data: batch } = await serviceClient
+      .from('batches')
+      .select('id')
+      .eq('id', payload.batchId)
+      .eq('college_id', cdc.college_id)
+      .single();
+    if (!batch) throw new AppError(400, 'Batch not found in your college');
+  }
+
+  // Check for existing pending invitation
+  const { data: existing } = await serviceClient
+    .from('student_invitations')
+    .select('id, status')
+    .eq('college_id', cdc.college_id)
+    .eq('email', payload.email.toLowerCase().trim())
+    .eq('status', 'pending')
+    .maybeSingle();
+
+  if (existing) {
+    throw new AppError(409, 'A pending invitation for this email already exists');
+  }
+
+  const { data, error } = await serviceClient
+    .from('student_invitations')
+    .insert({
+      college_id: cdc.college_id,
+      batch_id: payload.batchId || null,
+      email: payload.email.toLowerCase().trim(),
+      invited_by: userId,
+    })
+    .select(`
+      *,
+      batch:batches(id, name, department, graduation_year),
+      college:colleges(id, name, code)
+    `)
+    .single();
+
+  if (error || !data) {
+    throw new AppError(500, 'Failed to create invitation');
+  }
+
+  // If the user already has an account with this email, notify them
+  const { data: existingUser } = await serviceClient
+    .from('users')
+    .select('id')
+    .eq('email', payload.email.toLowerCase().trim())
+    .maybeSingle();
+
+  if (existingUser) {
+    await serviceClient.from('notifications').insert({
+      user_id: existingUser.id,
+      type: 'college_invitation',
+      title: '🎓 College Invitation',
+      message: `You have been invited to join ${data.college?.name || 'a college'} on SafHire${data.batch ? ` (${data.batch.name})` : ''}.`,
+      data: { invitation_id: data.id, college_id: cdc.college_id },
+    });
+  }
+
+  await writeAuditLog({
+    actorId: userId,
+    collegeId: cdc.college_id,
+    action: 'student_invited',
+    entityType: 'student_invitation',
+    entityId: data.id,
+    metadata: { email: payload.email, batch_id: payload.batchId },
+    ipAddress: reqMeta.ipAddress,
+  });
+
+  return data;
+}
+
+async function listInvitations(userId) {
+  const cdc = await getContext(userId);
+  const { data, error } = await serviceClient
+    .from('student_invitations')
+    .select(`
+      *,
+      batch:batches(id, name, department, graduation_year),
+      inviter:users!invited_by(id, full_name, email)
+    `)
+    .eq('college_id', cdc.college_id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new AppError(500, 'Failed to load invitations');
+  return data || [];
+}
+
+async function revokeInvitation(userId, invitationId, reqMeta = {}) {
+  const cdc = await getContext(userId);
+  const { data, error } = await serviceClient
+    .from('student_invitations')
+    .update({ status: 'revoked' })
+    .eq('id', invitationId)
+    .eq('college_id', cdc.college_id)
+    .eq('status', 'pending')
+    .select('*')
+    .single();
+
+  if (error || !data) throw new AppError(404, 'Invitation not found or already resolved');
+
+  await writeAuditLog({
+    actorId: userId,
+    collegeId: cdc.college_id,
+    action: 'student_invitation_revoked',
+    entityType: 'student_invitation',
+    entityId: invitationId,
+    ipAddress: reqMeta.ipAddress,
+  });
+
+  return data;
+}
+
+// ─── Incoming Job Requests ──────────────────────────────────────────────────
+
+async function listIncomingJobRequests(userId) {
+  const cdc = await getContext(userId);
+  const { data, error } = await serviceClient
+    .from('job_assignments')
+    .select(`
+      *,
+      job:jobs(
+        *,
+        employer:employers(id, company_name, verification_status, credibility_score, company_logo_url),
+        ai_review:job_ai_reviews(*)
+      )
+    `)
+    .eq('college_id', cdc.college_id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new AppError(500, 'Failed to load job requests');
+
+  return (data || []).map((assignment) => ({
+    ...assignment,
+    // Separate pending vs. actioned for the UI to distinguish
+    is_pending: assignment.visibility_status === 'pending',
+  }));
+}
+
+async function reviewJobRequest(userId, assignmentId, payload, reqMeta = {}) {
+  const cdc = await getContext(userId);
+
+  // Fetch the assignment first to verify it belongs to this college
+  const { data: assignment, error: fetchError } = await serviceClient
+    .from('job_assignments')
+    .select('*, job:jobs(*)')
+    .eq('id', assignmentId)
+    .eq('college_id', cdc.college_id)
+    .single();
+
+  if (fetchError || !assignment) throw new AppError(404, 'Assignment not found');
+  if (assignment.visibility_status !== 'pending') {
+    throw new AppError(400, 'This request has already been reviewed');
+  }
+
+  const newStatus = payload.status; // 'approved' | 'rejected'
+  if (!['approved', 'rejected'].includes(newStatus)) {
+    throw new AppError(400, 'status must be approved or rejected');
+  }
+
+  // Validate batch/group if provided
+  if (payload.batchId) {
+    const { data: batch } = await serviceClient
+      .from('batches')
+      .select('id')
+      .eq('id', payload.batchId)
+      .eq('college_id', cdc.college_id)
+      .single();
+    if (!batch) throw new AppError(400, 'Batch not found in your college');
+  }
+
+  if (payload.groupId) {
+    const { data: group } = await serviceClient
+      .from('groups')
+      .select('id')
+      .eq('id', payload.groupId)
+      .eq('college_id', cdc.college_id)
+      .single();
+    if (!group) throw new AppError(400, 'Group not found in your college');
+  }
+
+  const { data: updated, error } = await serviceClient
+    .from('job_assignments')
+    .update({
+      visibility_status: newStatus,
+      batch_id: payload.batchId || null,
+      group_id: payload.groupId || null,
+      assigned_by: userId,
+      internal_notes: payload.internalNotes || null,
+      override_reason: payload.overrideReason || null,
+    })
+    .eq('id', assignmentId)
+    .select('*')
+    .single();
+
+  if (error || !updated) throw new AppError(500, 'Failed to update assignment');
+
+  // If approved, ensure a discussion scope exists for this college
+  if (newStatus === 'approved') {
+    await ensureDiscussionForScope({
+      jobId: assignment.job_id,
+      collegeId: cdc.college_id,
+      createdBy: userId,
+    });
+
+    // Notify students in the targeted batch (if specified)
+    if (payload.batchId) {
+      const { data: batchStudents } = await serviceClient
+        .from('students')
+        .select('user_id')
+        .eq('batch_id', payload.batchId)
+        .eq('college_id', cdc.college_id);
+
+      if (batchStudents?.length > 0) {
+        await serviceClient.from('notifications').insert(
+          batchStudents.map((s) => ({
+            user_id: s.user_id,
+            type: 'new_campus_job',
+            title: '💼 New Job Opportunity',
+            message: `A new campus job has been made available to your batch: "${assignment.job?.title || 'Job'}"`,
+            data: { job_id: assignment.job_id },
+          })),
+        );
+      }
+    }
+  }
+
+  // Notify the employer of the decision
+  const { data: employerUser } = await serviceClient
+    .from('employers')
+    .select('user_id')
+    .eq('id', assignment.job?.employer_id)
+    .single();
+
+  if (employerUser) {
+    const collegeName = cdc.college?.name || 'A college';
+    await serviceClient.from('notifications').insert({
+      user_id: employerUser.user_id,
+      type: newStatus === 'approved' ? 'campus_job_approved' : 'campus_job_rejected',
+      title: newStatus === 'approved' ? '✅ Campus Job Approved' : '❌ Campus Job Rejected',
+      message: `${collegeName} has ${newStatus === 'approved' ? 'approved and assigned' : 'declined'} your campus job "${assignment.job?.title || ''}" to their students.`,
+      data: { job_id: assignment.job_id, college_id: cdc.college_id },
+    });
+  }
+
+  await writeAuditLog({
+    actorId: userId,
+    collegeId: cdc.college_id,
+    action: `campus_job_${newStatus}`,
+    entityType: 'job_assignment',
+    entityId: assignmentId,
+    metadata: { status: newStatus, batch_id: payload.batchId, group_id: payload.groupId },
+    ipAddress: reqMeta.ipAddress,
+  });
+
+  return updated;
+}
+

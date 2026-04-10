@@ -249,11 +249,13 @@ export default function EmployerProfile() {
             <form className="mt-4 space-y-4" onSubmit={requestCollegeAccess}>
               <select className="th-input" value={accessCollegeId} onChange={(event) => setAccessCollegeId(event.target.value)}>
                 <option value="">Select a college</option>
-                {colleges.map((college) => (
-                  <option key={college.id} value={college.id}>
-                    {college.name} · {college.location}
-                  </option>
-                ))}
+                {colleges
+                  .filter((college) => !['requested', 'approved'].includes(college.access?.status))
+                  .map((college) => (
+                    <option key={college.id} value={college.id}>
+                      {college.name} · {college.location}
+                    </option>
+                  ))}
               </select>
               <textarea className="th-input min-h-24" value={accessReason} onChange={(event) => setAccessReason(event.target.value)} placeholder="Explain your hiring plan, target batch, or role type." />
               <button className="th-btn-primary" type="submit">

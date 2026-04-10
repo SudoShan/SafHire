@@ -533,3 +533,79 @@ body {
 .stagger > *:nth-child(4) { animation-delay: 180ms; }
 .stagger > *:nth-child(5) { animation-delay: 240ms; }
 .stagger > *:nth-child(6) { animation-delay: 300ms; }
+
+/* ============================================================
+   Modal animations (native CSS — no Tailwind v4 required)
+   ============================================================ */
+
+@keyframes th-modal-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes th-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.93) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Drawer / slide-over panel (for batch detail) */
+@keyframes th-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.th-drawer {
+  animation: th-drawer-in 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Tab bar */
+.th-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  border: none;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.th-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.th-tab-active {
+  color: var(--brand-primary-light) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+}
+
+.th-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  scrollbar-width: none;
+}
+
+.th-tab-bar::-webkit-scrollbar { display: none; }
+

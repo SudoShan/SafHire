@@ -67,7 +67,7 @@ export function arrayFrom(value) {
 export function statusTone(status = '') {
   const normalized = String(status).toLowerCase();
 
-  if (['approved', 'verified', 'active', 'shortlisted', 'offered', 'strong', 'low'].includes(normalized)) {
+  if (['approved', 'verified', 'active', 'shortlisted', 'offered', 'selected', 'strong', 'low'].includes(normalized)) {
     return 'success';
   }
 

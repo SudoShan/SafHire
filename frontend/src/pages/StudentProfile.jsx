@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AppShell from '../components/AppShell';
 import LoadingScreen from '../components/LoadingScreen';
@@ -15,6 +16,7 @@ function csvToArray(value) {
 
 export default function StudentProfile() {
   const { user, refreshUser } = useAuth();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -57,6 +59,12 @@ export default function StudentProfile() {
             linkedin_url: currentProfile.linkedin_url || '',
             github_url: currentProfile.github_url || '',
           });
+        } else if (location.state?.prefill) {
+          // Prefill from invitation
+          setForm((current) => ({
+            ...current,
+            batch_id: location.state.prefill.batch_id || '',
+          }));
         }
       } catch (error) {
         toast.error(getApiError(error, 'Unable to load student profile'));

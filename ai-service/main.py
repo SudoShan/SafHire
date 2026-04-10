@@ -18,6 +18,7 @@ from interview_prep import InterviewPrepGenerator
 from resume_parser import ResumeParser
 from scam_detector import ScamDetector
 from smart_matcher import SmartMatcher
+from fraud_detector import FraudDetector, VoteRecord
 
 load_dotenv()
 
@@ -49,6 +50,7 @@ scam_detector = ScamDetector()
 resume_parser = ResumeParser()
 interview_prep = InterviewPrepGenerator()
 smart_matcher = SmartMatcher()
+fraud_detector = FraudDetector()
 
 
 class JobAnalysisRequest(BaseModel):
@@ -178,6 +180,37 @@ async def extract_resume_skills(
         raise
     except Exception as error:
         logger.exception("Resume extraction failed")
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+class FraudCheckRequest(BaseModel):
+    job_id: str = ""
+    votes: List[dict] = Field(default_factory=list)
+
+
+@app.post("/check-fraud")
+async def check_fraud(request: FraudCheckRequest):
+    """Check a list of votes for suspicious patterns on a single job."""
+    try:
+        vote_records = [
+            VoteRecord(
+                user_id=v.get("user_id", ""),
+                vote_type=v.get("vote_type", "upvote"),
+                weight=float(v.get("weight", 1)),
+                created_at=v.get("created_at", ""),
+                account_age_days=int(v.get("account_age_days", 999)),
+            )
+            for v in request.votes
+        ]
+        result = fraud_detector.check_votes(vote_records, job_id=request.job_id)
+        return {
+            "is_suspicious": result.is_suspicious,
+            "risk_level": result.risk_level,
+            "reasons": result.reasons,
+            "details": result.details,
+        }
+    except Exception as error:
+        logger.exception("Fraud detection failed")
         raise HTTPException(status_code=500, detail=str(error)) from error
 
 

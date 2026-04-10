@@ -6,6 +6,8 @@ import {
   HiOutlineCheckBadge,
   HiOutlineNoSymbol,
   HiOutlineExclamationTriangle,
+  HiOutlineCheckCircle,
+  HiOutlineXCircle,
 } from 'react-icons/hi2';
 import AppShell from '../components/AppShell';
 import EmptyState from '../components/EmptyState';
@@ -52,6 +54,18 @@ export default function SuperAdminDashboard() {
       setEmployers(res.data.employers || []);
     } catch (error) {
       toast.error(getApiError(error, 'Unable to update employer status'));
+    }
+  };
+
+  const finalizeOutcome = async (jobId, outcome) => {
+    const label = outcome === 'confirmed_genuine' ? 'Genuine' : 'Scam';
+    try {
+      await api.patch(`/super-admin/jobs/${jobId}/outcome`, { outcome });
+      toast.success(`Job marked as ${label}. Voter stats updated.`);
+      const res = await api.get('/super-admin/flagged-jobs');
+      setFlaggedJobs(res.data.jobs || []);
+    } catch (error) {
+      toast.error(getApiError(error, `Unable to finalize as ${label}`));
     }
   };
 
@@ -111,18 +125,54 @@ export default function SuperAdminDashboard() {
               flaggedJobs.slice(0, 6).map((job) => (
                 <div
                   key={job.id}
-                  className="th-panel flex items-start justify-between gap-3 p-4"
+                  className="th-panel p-4 space-y-3"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-ink truncate">{job.title}</p>
-                    <p className="mt-0.5 text-xs text-ink-soft">
-                      {job.employer?.company_name || 'Employer'} · Scam score{' '}
-                      <span style={{ color: job.ai_review?.scam_score > 60 ? '#f87171' : '#fbbf24' }}>
-                        {job.ai_review?.scam_score ?? 'N/A'}
-                      </span>
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-ink truncate">{job.title}</p>
+                      <p className="mt-0.5 text-xs text-ink-soft">
+                        {job.employer?.company_name || 'Employer'} · AI Scam{' '}
+                        <span style={{ color: job.ai_review?.scam_score > 60 ? '#f87171' : '#fbbf24' }}>
+                          {job.ai_review?.scam_score ?? 'N/A'}
+                        </span>
+                        {job.outcome && (
+                          <span
+                            className="ml-2 th-badge"
+                            style={{
+                              background: job.outcome === 'confirmed_genuine' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                              color: job.outcome === 'confirmed_genuine' ? '#34d399' : '#f87171',
+                              border: `1px solid ${job.outcome === 'confirmed_genuine' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                            }}
+                          >
+                            {job.outcome === 'confirmed_genuine' ? '✓ Genuine' : '✗ Scam'}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <StatusBadge status={job.status} />
                   </div>
-                  <StatusBadge status={job.status} />
+
+                  {/* Finalize Outcome buttons — only show if not yet finalized */}
+                  {!job.outcome && (
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                        type="button"
+                        onClick={() => finalizeOutcome(job.id, 'confirmed_genuine')}
+                      >
+                        <HiOutlineCheckCircle className="h-3.5 w-3.5" style={{ color: '#34d399' }} />
+                        Confirm Genuine
+                      </button>
+                      <button
+                        className="th-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                        type="button"
+                        onClick={() => finalizeOutcome(job.id, 'confirmed_scam')}
+                      >
+                        <HiOutlineXCircle className="h-3.5 w-3.5" style={{ color: '#f87171' }} />
+                        Confirm Scam
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}

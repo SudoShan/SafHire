@@ -63,16 +63,69 @@ async function assignJob(req, res) {
   res.status(201).json({ assignment });
 }
 
+async function inviteStudent(req, res) {
+  const invitation = await cdcService.inviteStudent(req.user.id, req.validated, { ipAddress: req.ip });
+  res.status(201).json({ invitation });
+}
+
+async function listInvitations(req, res) {
+  const invitations = await cdcService.listInvitations(req.user.id);
+  res.json({ invitations });
+}
+
+async function revokeInvitation(req, res) {
+  const invitation = await cdcService.revokeInvitation(req.user.id, req.params.invitationId, { ipAddress: req.ip });
+  res.json({ invitation });
+}
+
+async function listIncomingJobRequests(req, res) {
+  const assignments = await cdcService.listIncomingJobRequests(req.user.id);
+  res.json({ assignments });
+}
+
+async function reviewJobRequest(req, res) {
+  const assignment = await cdcService.reviewJobRequest(
+    req.user.id,
+    req.params.assignmentId,
+    {
+      status: req.body.status,
+      batchId: req.body.batch_id || null,
+      groupId: req.body.group_id || null,
+      internalNotes: req.body.internal_notes || null,
+      overrideReason: req.body.override_reason || null,
+    },
+    { ipAddress: req.ip },
+  );
+  res.json({ assignment });
+}
+
+async function listBatchStudents(req, res) {
+  const students = await cdcService.listBatchStudents(req.user.id, req.params.batchId);
+  res.json({ students });
+}
+
+async function listBatchJobs(req, res) {
+  const result = await cdcService.listBatchJobs(req.user.id, req.params.batchId);
+  res.json(result);
+}
+
 module.exports = {
   assignJob,
   createBatch,
   createGroup,
   dashboard,
+  inviteStudent,
   listAssignableJobs,
+  listBatchJobs,
+  listBatchStudents,
   listBatches,
   listEmployerRequests,
   listGroups,
+  listIncomingJobRequests,
+  listInvitations,
   listStudents,
   refreshGroupMembers,
   resolveEmployerRequest,
+  reviewJobRequest,
+  revokeInvitation,
 };

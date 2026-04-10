@@ -14,6 +14,9 @@ function validateJob(req) {
     eligibilityRules: req.body.eligibility_rules || {},
     requiredSkills: ensureArray(req.body.required_skills, 'required_skills'),
     attachmentUrls: ensureArray(req.body.attachment_urls, 'attachment_urls'),
+    targetCollegeIds: ensureArray(req.body.target_college_ids, 'target_college_ids'),
+    requireResume: Boolean(req.body.requireResume),
+    timeline: Array.isArray(req.body.timeline) ? req.body.timeline : [],
   };
 }
 
@@ -34,8 +37,16 @@ function validateApplication(req) {
   };
 }
 
+function validateInvitation(req) {
+  return {
+    email: ensureString(req.body.email, 'email'),
+    batchId: ensureString(req.body.batch_id, 'batch_id', { required: false }),
+  };
+}
+
 module.exports = {
   validateApplication,
   validateAssignment,
+  validateInvitation,
   validateJob,
 };

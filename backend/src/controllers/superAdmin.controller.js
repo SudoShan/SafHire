@@ -54,8 +54,19 @@ async function listUsers(_req, res) {
   res.json({ users });
 }
 
+async function finalizeJobOutcome(req, res) {
+  const result = await superAdminService.finalizeJobOutcome(
+    req.user.id,
+    req.params.jobId,
+    req.body.outcome,
+    { ipAddress: req.ip },
+  );
+  res.json({ job: result });
+}
+
 module.exports = {
   createCollege,
+  finalizeJobOutcome,
   listColleges,
   listEmployers,
   listFlaggedJobs,

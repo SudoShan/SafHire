@@ -5,6 +5,7 @@ import EmptyState from '../components/EmptyState';
 import LoadingScreen from '../components/LoadingScreen';
 import PageHeader from '../components/PageHeader';
 import StatusBadge from '../components/StatusBadge';
+import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import api, { getApiError } from '../lib/api';
 import { formatDate } from '../lib/utils';
@@ -16,6 +17,9 @@ export default function Appeals() {
   const [jobs, setJobs] = useState([]);
   const [jobId, setJobId] = useState('');
   const [reason, setReason] = useState('');
+
+  // Modal state
+  const [reviewModal, setReviewModal] = useState({ isOpen: false, id: null, status: '', notes: '' });
 
   const loadAppeals = async () => {
     try {
@@ -49,19 +53,27 @@ export default function Appeals() {
     }
   };
 
-  const reviewAppeal = async (appealId, status) => {
-    const notes = prompt(`Enter resolution notes for ${status}:`, status === 'approved' ? 'Returned to review queue.' : 'Appeal declined after review.');
-    if (notes === null) return;
+  const handleReviewAppeal = async () => {
     try {
-      await api.patch(`/appeals/${appealId}`, {
-        status,
-        resolution_notes: notes,
+      await api.patch(`/appeals/${reviewModal.id}`, {
+        status: reviewModal.status,
+        resolution_notes: reviewModal.notes,
       });
-      toast.success(`Appeal ${status}.`);
+      toast.success(`Appeal ${reviewModal.status}.`);
+      setReviewModal({ isOpen: false, id: null, status: '', notes: '' });
       loadAppeals();
     } catch (error) {
       toast.error(getApiError(error, 'Unable to review appeal'));
     }
+  };
+
+  const openReviewModal = (id, status) => {
+    setReviewModal({
+      isOpen: true,
+      id,
+      status,
+      notes: status === 'approved' ? 'Returned to review queue.' : 'Appeal declined after review.',
+    });
   };
 
   if (loading) {
@@ -137,10 +149,10 @@ export default function Appeals() {
 
                   {user.role === 'super_admin' && appeal.status === 'pending' ? (
                     <div className="mt-4 flex flex-wrap gap-3">
-                      <button className="th-btn-primary" type="button" onClick={() => reviewAppeal(appeal.id, 'approved')}>
+                      <button className="th-btn-primary" type="button" onClick={() => openReviewModal(appeal.id, 'approved')}>
                         Approve
                       </button>
-                      <button className="th-btn-secondary" type="button" onClick={() => reviewAppeal(appeal.id, 'rejected')}>
+                      <button className="th-btn-secondary" type="button" onClick={() => openReviewModal(appeal.id, 'rejected')}>
                         Reject
                       </button>
                     </div>
@@ -151,6 +163,26 @@ export default function Appeals() {
           </div>
         </section>
       </div>
+
+      <Modal
+        isOpen={reviewModal.isOpen}
+        onClose={() => setReviewModal({ ...reviewModal, isOpen: false })}
+        title={`Review Appeal: ${reviewModal.status}`}
+        description="Provide resolution notes for this appeal."
+        footer={
+          <>
+            <button className="th-btn-ghost" onClick={() => setReviewModal({ ...reviewModal, isOpen: false })}>Cancel</button>
+            <button className="th-btn-primary" onClick={handleReviewAppeal}>Submit Review</button>
+          </>
+        }
+      >
+        <textarea
+          className="th-input min-h-[120px]"
+          value={reviewModal.notes}
+          onChange={(e) => setReviewModal({ ...reviewModal, notes: e.target.value })}
+          placeholder="Resolution notes..."
+        />
+      </Modal>
     </AppShell>
   );
 }

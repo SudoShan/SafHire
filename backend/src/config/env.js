@@ -28,4 +28,7 @@ module.exports = {
   scamThreshold: parseNumber(process.env.SCAM_THRESHOLD, 70),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   bootstrapSecret: process.env.BOOTSTRAP_SECRET || 'trusthire-bootstrap',
+  // Dynamic trust system thresholds (vote-based)
+  trustWarningThreshold:  parseNumber(process.env.TRUST_WARNING_THRESHOLD, 40),
+  trustCriticalThreshold: parseNumber(process.env.TRUST_CRITICAL_THRESHOLD, 25),
 };

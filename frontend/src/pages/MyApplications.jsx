@@ -66,7 +66,7 @@ export default function MyApplications() {
                       {application.job?.employer?.company_name || 'Employer'} · Applied on {formatDate(application.applied_at)}
                     </p>
                   </div>
-                  <StatusBadge status={application.status} />
+                  <StatusBadge status={application.current_phase || application.status} />
                 </div>
                 {application.cover_letter ? (
                   <p className="mt-4 text-sm leading-7 text-ink-soft">{application.cover_letter}</p>

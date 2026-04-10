@@ -5,6 +5,7 @@ const { ensureDiscussionForScope, getCdcAdminByUserId, getEmployerByUserId, getJ
 const { predictScam } = require('./ai.service');
 const { matchesEligibility } = require('./student.service');
 const { writeAuditLog } = require('../helpers/audit');
+const { computeTrustScore } = require('../helpers/trustScore');
 
 async function getAssignmentSummaries(jobId, collegeId = null) {
   const query = serviceClient.from('job_assignments').select('*').eq('job_id', jobId);
@@ -61,7 +62,45 @@ function deriveJobStatus(aiResult) {
   };
 }
 
+/**
+ * Batch-fetch votes for a list of job IDs and compute trust_score + vote_count.
+ * Avoids N+1 queries: one DB call for all jobs.
+ * @param {Array} jobs - array of job objects with at least { id }
+ * @returns {Array} same jobs with trust_score and vote_count appended
+ */
+async function attachTrustScores(jobs) {
+  if (!jobs || jobs.length === 0) return [];
+
+  const jobIds = jobs.map((j) => j.id);
+
+  const { data: allVotes } = await serviceClient
+    .from('votes')
+    .select('job_id, vote_type, weight')
+    .in('job_id', jobIds);
+
+  // Group votes by job_id
+  const votesByJob = {};
+  for (const vote of allVotes || []) {
+    if (!votesByJob[vote.job_id]) votesByJob[vote.job_id] = [];
+    votesByJob[vote.job_id].push(vote);
+  }
+
+  return jobs.map((job) => {
+    const jobVotes = votesByJob[job.id] || [];
+    const { score, totalWeight } = computeTrustScore(jobVotes);
+    return {
+      ...job,
+      trust_score: jobVotes.length > 0 ? score : null, // null means "not yet rated"
+      vote_count: jobVotes.length,
+      upvotes: jobVotes.filter((v) => v.vote_type === 'upvote').length,
+      downvotes: jobVotes.filter((v) => v.vote_type === 'downvote').length,
+      reports: jobVotes.filter((v) => v.vote_type === 'report_scam').length,
+    };
+  });
+}
+
 async function listPublicJobs() {
+
   const { data, error } = await serviceClient
     .from('jobs')
     .select(`
@@ -77,7 +116,8 @@ async function listPublicJobs() {
     throw new AppError(500, 'Failed to load jobs');
   }
 
-  return data || [];
+  const jobs = data || [];
+  return attachTrustScores(jobs);
 }
 
 async function createJob(user, payload, reqMeta = {}) {
@@ -124,6 +164,8 @@ async function createJob(user, payload, reqMeta = {}) {
       required_skills: payload.requiredSkills,
       attachment_urls: payload.attachmentUrls,
       application_deadline: payload.applicationDeadline,
+      require_resume: payload.requireResume || false,
+      timeline: payload.timeline || [],
       status: state.status,
       status_reason: state.statusReason,
       ai_screening_status: state.aiScreeningStatus,
@@ -155,6 +197,11 @@ async function createJob(user, payload, reqMeta = {}) {
     });
   }
 
+  // For campus_cdc: broadcast to targeted colleges as pending assignments
+  if (job.distribution_mode === 'campus_cdc' && payload.targetCollegeIds?.length > 0) {
+    await broadcastCampusJob(job.id, employer.id, payload.targetCollegeIds);
+  }
+
   await writeAuditLog({
     actorId: user.id,
     action: 'job_created',
@@ -164,6 +211,7 @@ async function createJob(user, payload, reqMeta = {}) {
       distribution_mode: job.distribution_mode,
       status: job.status,
       scam_score: aiResult.scam_score,
+      target_colleges: payload.targetCollegeIds?.length || 0,
     },
     ipAddress: reqMeta.ipAddress,
   });
@@ -173,6 +221,64 @@ async function createJob(user, payload, reqMeta = {}) {
     ai_review: aiResult,
   };
 }
+
+/**
+ * Broadcast a campus_cdc job to selected colleges as pending assignments.
+ * Only broadcasts to colleges where employer has approved access.
+ */
+async function broadcastCampusJob(jobId, employerId, targetCollegeIds) {
+  // Verify approved access for each college
+  const { data: approvedAccess } = await serviceClient
+    .from('employer_college_access')
+    .select('college_id')
+    .eq('employer_id', employerId)
+    .eq('status', 'approved')
+    .in('college_id', targetCollegeIds);
+
+  const approvedCollegeIds = (approvedAccess || []).map((a) => a.college_id);
+  if (approvedCollegeIds.length === 0) return;
+
+  // Create one pending assignment per approved college
+  const assignments = approvedCollegeIds.map((collegeId) => ({
+    job_id: jobId,
+    college_id: collegeId,
+    batch_id: null,
+    group_id: null,
+    assigned_by: null,
+    visibility_status: 'pending',
+  }));
+
+  await serviceClient
+    .from('job_assignments')
+    .upsert(assignments, { onConflict: 'job_id,college_id,batch_id,group_id', ignoreDuplicates: true });
+
+  // Notify each college's CDC admins
+  const { data: cdcAdmins } = await serviceClient
+    .from('cdc_admins')
+    .select('user_id')
+    .in('college_id', approvedCollegeIds)
+    .eq('status', 'active');
+
+  if (cdcAdmins?.length > 0) {
+    const { data: jobInfo } = await serviceClient
+      .from('jobs')
+      .select('title, employer:employers(company_name)')
+      .eq('id', jobId)
+      .single();
+
+    await serviceClient.from('notifications').insert(
+      cdcAdmins.map((admin) => ({
+        user_id: admin.user_id,
+        type: 'incoming_campus_job',
+        title: '📋 New Campus Job Request',
+        message: `${jobInfo?.employer?.company_name || 'An employer'} has submitted "${jobInfo?.title || 'a job'}" for your college review.`,
+        data: { job_id: jobId },
+      })),
+    );
+  }
+}
+
+
 
 async function getJobDetail(jobId, user = null) {
   const job = await getJobById(jobId);
@@ -202,6 +308,7 @@ async function getJobDetail(jobId, user = null) {
       return { ...job, ...state, discussion_scope: 'global' };
     }
 
+    // For campus_cdc jobs: check that the assignment is approved for THIS student's batch/group
     const assignments = await getAssignmentSummaries(job.id, student.college_id);
 
     const { data: memberships } = await serviceClient
@@ -211,12 +318,14 @@ async function getJobDetail(jobId, user = null) {
 
     const groupIds = new Set((memberships || []).map((item) => item.group_id));
     const authorized = (assignments || []).some((assignment) => {
+      // Only count approved/restricted assignments (CDC must have approved it)
+      if (!['approved', 'restricted'].includes(assignment.visibility_status)) return false;
       const batchMatches = !assignment.batch_id || assignment.batch_id === student.batch_id;
       const groupMatches = !assignment.group_id || groupIds.has(assignment.group_id);
       return batchMatches && groupMatches;
     });
 
-    if (!authorized || !matchesEligibility(student, job)) {
+    if (!authorized) {
       throw new AppError(403, 'You are not authorized to view this campus job');
     }
 
@@ -226,14 +335,15 @@ async function getJobDetail(jobId, user = null) {
   if (user.roleCode === 'cdc_admin') {
     const cdcAdmin = await getCdcAdminByUserId(user.id, { required: true });
     if (job.distribution_mode === 'campus_cdc') {
-      const { data: assignment } = await serviceClient
+      // Check if ANY assignment exists for this college for this job
+      const { data: assignments } = await serviceClient
         .from('job_assignments')
         .select('id')
         .eq('job_id', job.id)
         .eq('college_id', cdcAdmin.college_id)
-        .maybeSingle();
+        .limit(1);
 
-      if (!assignment) {
+      if (!assignments || assignments.length === 0) {
         throw new AppError(403, 'This campus job is not assigned to your college');
       }
     }
@@ -276,6 +386,7 @@ async function listEmployerJobs(userId) {
     .from('jobs')
     .select(`
       *,
+      employer:employers(*),
       ai_review:job_ai_reviews(*),
       assignments:job_assignments(*)
     `)
@@ -286,12 +397,22 @@ async function listEmployerJobs(userId) {
     throw new AppError(500, 'Failed to load employer jobs');
   }
 
-  return data || [];
+  return attachTrustScores(data || []);
 }
 
 async function applyToJob(jobId, userId, payload, reqMeta = {}) {
   const student = await getStudentByUserId(userId, { required: true });
   const detail = await getJobDetail(jobId, { id: userId, roleCode: student.is_alumni ? 'alumni' : 'student' });
+
+  if (detail.application_deadline && new Date(detail.application_deadline) < new Date()) {
+    throw new AppError(400, 'The application deadline for this job has passed.');
+  }
+
+  const resumeToUse = payload.resumeUrl || student.resume_url;
+
+  if (detail.require_resume && !resumeToUse) {
+    throw new AppError(400, 'A resume is required to apply for this job. Please upload one or update your profile.');
+  }
 
   const { data: existing } = await serviceClient
     .from('applications')
@@ -310,7 +431,9 @@ async function applyToJob(jobId, userId, payload, reqMeta = {}) {
       job_id: jobId,
       student_id: student.id,
       cover_letter: payload.coverLetter,
+      resume_url: resumeToUse || null,
       status: 'applied',
+      current_phase: (detail.timeline && detail.timeline[0]) ? detail.timeline[0] : 'applied',
     })
     .select('*')
     .single();
@@ -435,10 +558,23 @@ async function updateApplicationStatus(applicationId, user, status, reqMeta = {}
     throw new AppError(403, 'You cannot update application statuses');
   }
 
+  // Pre-allowed exact DB enums
+  const STRICT_STATUSES = ['applied','screening','shortlisted','interviewing','offered','selected','rejected','withdrawn'];
+  
+  let dbStatus = status;
+  let dbPhase = status;
+
+  if (!STRICT_STATUSES.includes(status)) {
+    // If it's a phase string (e.g., 'Technical Round'), we map the technical phase strictly 
+    // to a neutral valid enum 'interviewing' while preserving raw phase text in 'current_phase'
+    dbStatus = 'interviewing'; 
+  }
+
   const { data, error } = await serviceClient
     .from('applications')
     .update({
-      status,
+      status: dbStatus, 
+      current_phase: dbPhase,
       updated_at: new Date().toISOString(),
     })
     .eq('id', applicationId)
@@ -455,8 +591,20 @@ async function updateApplicationStatus(applicationId, user, status, reqMeta = {}
     action: 'application_status_updated',
     entityType: 'application',
     entityId: applicationId,
-    metadata: { status },
+    metadata: { status: dbStatus, phase: dbPhase },
     ipAddress: reqMeta.ipAddress,
+  });
+
+  // Notify the student
+  const isSelection = dbPhase === 'selected';
+  await serviceClient.from('notifications').insert({
+    user_id: application.student.user_id,
+    type: isSelection ? 'selection_alert' : 'application_update',
+    title: isSelection ? '🎉 You have been Selected!' : 'Application Status Updated',
+    message: isSelection 
+      ? `Congratulations! You have been selected for the position of ${application.job.title}.`
+      : `Your application status for ${application.job.title} has been updated to "${dbPhase}".`,
+    data: { job_id: application.job_id },
   });
 
   return data;

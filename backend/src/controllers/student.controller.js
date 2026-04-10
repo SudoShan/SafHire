@@ -40,12 +40,30 @@ async function getApplications(req, res) {
   res.json({ applications });
 }
 
+async function listInvitations(req, res) {
+  const invitations = await studentService.listMyInvitations(req.user.id);
+  res.json({ invitations });
+}
+
+async function acceptInvitation(req, res) {
+  const result = await studentService.acceptInvitation(req.user.id, req.params.invitationId, { ipAddress: req.ip });
+  res.json(result);
+}
+
+async function getCampusDrives(req, res) {
+  const result = await studentService.getCampusDrives(req.user.id);
+  res.json(result);
+}
+
 module.exports = {
+  acceptInvitation,
+  getCampusDrives,
   getApplications,
   getFeed,
   getProfile,
   getSavedJobs,
   listColleges,
+  listInvitations,
   toggleSavedJob,
   updateProfile,
   uploadResume,

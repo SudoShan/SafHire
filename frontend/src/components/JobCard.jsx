@@ -9,6 +9,7 @@ import {
 } from 'react-icons/hi2';
 import { formatCurrency, formatDate, sentenceCase } from '../lib/utils';
 import StatusBadge from './StatusBadge';
+import TrustMeter from './TrustMeter';
 
 export default function JobCard({ job, action, compact = false }) {
   const employerName = job.employer?.company_name || 'Employer';
@@ -151,6 +152,20 @@ export default function JobCard({ job, action, compact = false }) {
           )}
         </div>
       ) : null}
+
+      {/* Community Trust strip (compact) */}
+      {(job.trust_score !== undefined) && (
+        <div className="mt-2 px-0.5">
+          <TrustMeter
+            compact
+            score={job.trust_score}
+            voteCount={job.vote_count || 0}
+            upvotes={job.upvotes || 0}
+            downvotes={job.downvotes || 0}
+            reports={job.reports || 0}
+          />
+        </div>
+      )}
 
       {/* Actions */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">

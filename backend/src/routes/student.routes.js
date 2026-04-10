@@ -17,5 +17,8 @@ router.get('/feed', authenticate, authorize('student', 'alumni'), asyncHandler(c
 router.get('/saved-jobs', authenticate, authorize('student', 'alumni'), asyncHandler(controller.getSavedJobs));
 router.post('/saved-jobs/:jobId/toggle', authenticate, authorize('student', 'alumni'), asyncHandler(controller.toggleSavedJob));
 router.get('/applications', authenticate, authorize('student', 'alumni'), asyncHandler(controller.getApplications));
+router.get('/invitations', authenticate, authorize('student', 'alumni'), asyncHandler(controller.listInvitations));
+router.post('/invitations/:invitationId/accept', authenticate, authorize('student', 'alumni'), asyncHandler(controller.acceptInvitation));
+router.get('/campus-drives', authenticate, authorize('student', 'alumni'), asyncHandler(controller.getCampusDrives));
 
 module.exports = router;

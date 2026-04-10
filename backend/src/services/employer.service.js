@@ -99,6 +99,18 @@ async function requestCollegeAccess(userId, payload, reqMeta = {}) {
     throw new AppError(403, 'Blocked employers cannot request college access');
   }
 
+  // Check for existing pending or approved requests
+  const { data: existing } = await serviceClient
+    .from('employer_college_access')
+    .select('status')
+    .eq('employer_id', employer.id)
+    .eq('college_id', payload.collegeId)
+    .maybeSingle();
+
+  if (existing && ['requested', 'approved'].includes(existing.status)) {
+    throw new AppError(400, `You already have an ${existing.status} access record for this college.`);
+  }
+
   const { data, error } = await serviceClient
     .from('employer_college_access')
     .upsert(

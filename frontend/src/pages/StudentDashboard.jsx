@@ -7,6 +7,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineSparkles,
   HiOutlineUserCircle,
+  HiOutlineBuildingOffice2,
 } from 'react-icons/hi2';
 import AppShell from '../components/AppShell';
 import EmptyState from '../components/EmptyState';
@@ -183,53 +184,106 @@ export default function StudentDashboard() {
         </div>
 
         {/* Job feed */}
-        <div className="th-section space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="th-label">Smart feed</p>
-              <h2 className="mt-1 text-xl font-bold text-ink">Recommended for you</h2>
+        <div className="space-y-4">
+          {/* Campus Drives Section */}
+          <div className="th-section space-y-4 border-2 border-indigo-500/10 bg-indigo-500/5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="th-label flex items-center gap-1.5 text-indigo-500">
+                  <HiOutlineSparkles className="h-3.5 w-3.5" />
+                  Campus recruitment
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-ink">Active campus drives</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="th-badge bg-indigo-500 text-white border-transparent">
+                  {jobs.filter(j => j.distribution_mode === 'campus_cdc').length} Jobs
+                </span>
+                <Link
+                  className="th-btn-secondary text-xs"
+                  to="/student/campus-drives"
+                >
+                  <HiOutlineBuildingOffice2 className="h-3.5 w-3.5" />
+                  All Drives
+                  <HiOutlineArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
             </div>
-            <Link className="th-btn-secondary text-xs" to="/jobs">
-              All jobs
-              <HiOutlineArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
 
-          <div className="space-y-3">
-            {jobs.length === 0 ? (
-              <EmptyState
-                title="No eligible jobs yet"
-                description="Complete your profile or check back when new employers publish matching roles."
-              />
-            ) : (
-              jobs.slice(0, 4).map((job) => (
-                <JobCard
-                  key={job.id}
-                  compact
-                  job={job}
-                  action={
-                    <button
-                      className="th-btn-ghost text-xs px-2 py-1"
-                      type="button"
-                      onClick={() => toggleSave(job.id)}
-                    >
-                      <HiOutlineBookmark className="h-3.5 w-3.5" />
-                      {job.is_saved ? 'Saved' : 'Save'}
-                    </button>
-                  }
-                />
-              ))
+            <div className="space-y-3">
+              {jobs.filter(j => j.distribution_mode === 'campus_cdc').length === 0 ? (
+                <p className="text-xs text-ink-soft py-4 text-center">No active campus drives for your batch right now.</p>
+              ) : (
+                jobs.filter(j => j.distribution_mode === 'campus_cdc').slice(0, 3).map((job) => (
+                  <JobCard
+                    key={job.id}
+                    compact
+                    job={job}
+                  />
+                ))
+              )}
+            </div>
+
+            {jobs.filter(j => j.distribution_mode === 'campus_cdc').length > 3 && (
+              <Link
+                className="th-btn-primary w-full justify-center text-sm"
+                to="/student/campus-drives"
+              >
+                View all {jobs.filter(j => j.distribution_mode === 'campus_cdc').length} campus drives
+                <HiOutlineArrowRight className="h-4 w-4" />
+              </Link>
             )}
           </div>
 
-          {jobs.length > 0 && (
-            <div className="pt-1">
-              <Link className="th-btn-primary w-full justify-center text-sm" to="/jobs">
-                <HiOutlineSparkles className="h-4 w-4" />
-                View all {jobs.length} eligible jobs
+          {/* Recommended Feed */}
+          <div className="th-section space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="th-label">Smart feed</p>
+                <h2 className="mt-1 text-xl font-bold text-ink">Recommended for you</h2>
+              </div>
+              <Link className="th-btn-secondary text-xs" to="/jobs">
+                All jobs
+                <HiOutlineArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
-          )}
+
+            <div className="space-y-3">
+              {jobs.filter(j => j.distribution_mode !== 'campus_cdc').length === 0 ? (
+                <EmptyState
+                  title="No other recommendations"
+                  description="Check back later for curated job opportunities."
+                />
+              ) : (
+                jobs.filter(j => j.distribution_mode !== 'campus_cdc').slice(0, 4).map((job) => (
+                  <JobCard
+                    key={job.id}
+                    compact
+                    job={job}
+                    action={
+                      <button
+                        className="th-btn-ghost text-xs px-2 py-1"
+                        type="button"
+                        onClick={() => toggleSave(job.id)}
+                      >
+                        <HiOutlineBookmark className="h-3.5 w-3.5" />
+                        {job.is_saved ? 'Saved' : 'Save'}
+                      </button>
+                    }
+                  />
+                ))
+              )}
+            </div>
+
+            {jobs.length > 0 && (
+              <div className="pt-1">
+                <Link className="th-btn-primary w-full justify-center text-sm" to="/jobs">
+                  <HiOutlineSparkles className="h-4 w-4" />
+                  View all {jobs.length} eligible jobs
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </AppShell>

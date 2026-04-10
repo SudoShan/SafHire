@@ -16,4 +16,8 @@ router.patch('/employers/:employerId/status', asyncHandler(controller.updateEmpl
 router.get('/flagged-jobs', asyncHandler(controller.listFlaggedJobs));
 router.get('/users', asyncHandler(controller.listUsers));
 
+// Feedback Learning System — finalize a job's outcome
+router.patch('/jobs/:jobId/outcome', asyncHandler(controller.finalizeJobOutcome));
+
 module.exports = router;
+
